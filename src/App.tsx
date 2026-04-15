@@ -428,6 +428,29 @@ export default function App() {
     await saveProjectToDb(updatedProj); 
     setIsModalOpen(false); 
   };
+  // 🌟 新增：儲存單日備註到 Supabase 的專屬函數
+  const handleSaveDayRemark = async (dateStr: string, newRemark: string) => {
+    // 1. 先找找看資料庫是不是已經有這天(例如除夕)的資料了
+    const existing = dbEvents.find(e => e.date === dateStr);
+
+    // 2. 準備要存進去的資料包
+    const payload = existing
+      ? { ...existing, description: newRemark } // 如果原本有資料(如春節)，保留原本設定，只更新備註
+      : { date: dateStr, event_name: "", event_type: "平日", is_public_holiday: false, description: newRemark }; // 如果是新的一天，建立新資料
+
+    // 3. 傳送到 Supabase！(onConflict 代表日期重複就直接覆蓋更新)
+    const { error } = await supabase
+      .from('calendar_events')
+      .upsert(payload, { onConflict: 'date' });
+
+    if (error) {
+      alert("儲存備註失敗：" + error.message);
+    } else {
+      alert("備註已成功儲存至資料庫！");
+      fetchData(); // 重新抓取最新資料讓畫面更新
+      setSelectedDayInfo(null); // 關閉彈出視窗
+    }
+  };
 
   const handleToggleDept = (dept: string) => {
     const current = editingProject.countersign || [];
