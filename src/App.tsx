@@ -237,22 +237,15 @@ export default function App() {
     setIsLoading(false);
   };
 
-  // 🛡️ 升級版：資料庫存檔防禦機制
   const saveProjectToDb = async (proj: any) => {
-    const dbProj = { 
-      ...proj, 
-      breakdown: JSON.stringify(proj.breakdown), 
-      countersign: JSON.stringify(proj.countersign), 
-      id: String(proj.id) 
-    };
-    
+    const dbProj = { ...proj, breakdown: JSON.stringify(proj.breakdown), countersign: JSON.stringify(proj.countersign), id: String(proj.id) };
     const { error } = await supabase.from("projects").upsert(dbProj);
     if (error) {
       alert(`⚠️ 儲存失敗！\n錯誤原因：${error.message}\n\n請放心，您的簽呈資料還在畫面上沒有遺失！\n您可以先將文字複製備份，或修正問題後再點擊儲存。`);
-      return false; // 回傳失敗訊號，讓畫面知道不能關閉
+      return false; 
     } else {
       fetchData();
-      return true; // 回傳成功訊號
+      return true; 
     }
   };
 
@@ -451,16 +444,14 @@ export default function App() {
     setModalMode("create"); setIsModalOpen(true);
   };
 
-  // 🛡️ 升級版防護：處理專案儲存，只有成功才關閉視窗
   const handleSave = async (e: any) => { 
     e.preventDefault(); 
     let updatedProj = { ...editingProject }; 
     if (modalMode === "create" && updatedProj.countersign.length === 0) updatedProj.status = "revision"; 
     
-    // 檢查是否成功
     const isSuccess = await saveProjectToDb(updatedProj); 
     if (isSuccess) {
-      setIsModalOpen(false); // 只有資料庫成功寫入，才允許關閉視窗！
+      setIsModalOpen(false); 
     }
   };
 
@@ -552,6 +543,12 @@ export default function App() {
     updatePackage(pIdx, 'items', items);
   };
 
+  // 🌟 單一專案的 PDF 列印 (不再調用 List 表格)
+  const handlePrintSingleProject = () => {
+    setTimeout(() => { window.print(); }, 300);
+  };
+
+  // 🌟 List 匯出用的 PDF 列印
   const handleExportSystemPDF = () => {
     setIsPrintLayoutActive(true); setIsExportModalOpen(false);
     setTimeout(() => { window.print(); setIsPrintLayoutActive(false); }, 800);
@@ -561,6 +558,7 @@ export default function App() {
     const header = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>簽呈匯出</title><style>body{font-family:"Microsoft JhengHei",Arial,sans-serif;}table{border-collapse:collapse;width:100%;margin-bottom:20px;}th,td{border:1px solid black;padding:8px;text-align:left;vertical-align:top;}.center{text-align:center;}.no-border{border:none;}.no-border td{border:none;padding:4px 0;} .comments { color: black; font-weight: bold; background-color: #f9fafb; padding: 10px; border: 1px solid #ccc; }</style></head><body>`;
     const formatText = (t: string) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
     
+    // Word 匯出支援多個專案包裹 (含 OTA 四捨五入)
     let breakdownHtml = "";
     (project.breakdown || []).forEach((pkg: any) => {
       const otaText = pkg.ota ? `OTA抽成(${pkg.ota}%)` : "OTA抽成";
@@ -574,7 +572,16 @@ export default function App() {
     });
 
     const commentsHtml = (project.countersign || []).map((c: any) => `<div>[${c.dept}] ${c.status === "approved" ? c.time + " - " + formatText(c.comment || "無意見") : "待確認..."}</div>`).join("");
-    const htmlContent = `<h2 class="center">行銷公關部 簽呈 Official application</h2><table><tr><th class="center" width="20%">簽核</th><th class="center" width="20%">經辦人</th><th class="center" width="20%">部門主管</th><th class="center" width="20%">營運主管</th><th class="center" width="20%">總經理</th></tr><tr><td height="60"></td><td></td><td></td><td></td><td></td></tr></table><table class="no-border"><tr><td class="no-border">Date 日期：${formatText(project.applyDate)}</td></tr><tr><td class="no-border">Ref No 文檔號：${formatText(project.refNo)}</td></tr><tr><td class="no-border">專案類型：${project.projectType === 'room' ? '住房專案' : '休閒 / 餐飲專案'}</td></tr></table><table><tr><th width="15%">主旨</th><td>${formatText(project.title)}</td></tr><tr><th>說明</th><td>${formatText(project.purpose)}</td></tr><tr><th>活動日期</th><td>${formatText(project.startDate)} ～ ${formatText(project.endDate)}</td></tr><tr><th>內容說明</th><td>${formatText(project.content)}</td></tr><tr><th>注意事項</th><td>${formatText(project.precautions)}</td></tr></table><h3>財務內拆表</h3>${breakdownHtml}<table><tr><th width="15%">專案亮點</th><td>${formatText(project.highlights)}</td></tr><tr><th>會簽單位</th><td>${formatText((project.countersign || []).map((c: any) => c.dept).join("、 "))}</td></tr></table>${commentsHtml ? `<h3>會簽單位意見備註</h3><div class="comments">${commentsHtml}</div>` : ""}`;
+    
+    const deptName = project.creator?.split('-')[0]?.trim() || "行銷公關部";
+    
+    const htmlContent = `<h2 class="center">${formatText(deptName)} 簽呈 Official application</h2>
+      <table class="no-border"><tr><td class="no-border">Date 日期：${formatText(project.applyDate)}</td></tr><tr><td class="no-border">Ref No 文檔號：${formatText(project.refNo)}</td></tr><tr><td class="no-border">專案類型：${project.projectType === 'room' ? '住房專案' : '休閒 / 餐飲專案'}</td></tr></table>
+      <table><tr><th width="15%">主旨</th><td>${formatText(project.title)}</td></tr><tr><th>說明</th><td>${formatText(project.purpose)}</td></tr><tr><th>活動日期</th><td>${formatText(project.startDate)} ～ ${formatText(project.endDate)}</td></tr><tr><th>內容說明</th><td>${formatText(project.content)}</td></tr><tr><th>注意事項</th><td>${formatText(project.precautions)}</td></tr></table>
+      <h3>財務內拆表</h3>${breakdownHtml}
+      <table><tr><th width="15%">專案亮點</th><td>${formatText(project.highlights)}</td></tr><tr><th>會簽單位</th><td>${formatText((project.countersign || []).map((c: any) => c.dept).join("、 "))}</td></tr></table>
+      ${commentsHtml ? `<h3>會簽單位意見備註</h3><div class="comments">${commentsHtml}</div>` : ""}`;
+      
     const blob = new Blob(["\ufeff", header + htmlContent + "</body></html>"], { type: "application/msword" });
     const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `簽呈_${project.title.replace(/[\\/:*?"<>|]/g, "")}.doc`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
   };
@@ -812,7 +819,7 @@ export default function App() {
   return (
     <div className={`min-h-screen font-sans ${isPrintLayoutActive ? "bg-white" : "bg-slate-50 text-slate-800"}`}>
       
-      {/* 列印預覽模式 */}
+      {/* 列印預覽模式 - 全館清單 */}
       {isPrintLayoutActive && (
         <div className="bg-white min-h-screen pb-12 font-sans" id="pdf-export-area">
           <div className="fixed top-0 left-0 w-full bg-slate-800 text-white p-3 flex justify-between items-center z-[100] print:hidden shadow-md">
@@ -845,9 +852,9 @@ export default function App() {
         </div>
       )}
 
-      {/* 一般主介面 */}
+      {/* 一般主介面 (被列印時隱藏) */}
       {!isPrintLayoutActive && (
-        <>
+        <div className="print:hidden">
           <header className="bg-white shadow-sm sticky top-0 z-20 print:hidden">
             <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
               <div className="flex items-center gap-1 sm:gap-2 text-indigo-600">
@@ -973,7 +980,7 @@ export default function App() {
               </div>
             </section>
           </main>
-        </>
+        </div>
       )}
 
       {/* 匯入資料 Modal */}
@@ -1128,20 +1135,45 @@ export default function App() {
         .sign-table th, .sign-table td { border: 1px solid #d1d5db; padding: 0.75rem; text-align: left; vertical-align: top; }
         .sign-table th { background-color: #f3f4f6; color: #374151; font-weight: 600; }
         .sign-table .center { text-align: center; }
+        
+        /* 🌟 PDF 完美列印專用 CSS */
         @media print {
           body * { visibility: hidden; }
+          body, html { height: auto !important; overflow: visible !important; }
+          
+          /* 解除所有高度與捲動限制 */
+          .print-modal-wrapper { position: static !important; }
           .print-modal, .print-modal * { visibility: visible; }
-          .print-modal { position: absolute; left: 0; top: 0; width: 100%; border: none !important; box-shadow: none !important; }
-          .no-print { display: none !important; }
-          .sign-table th, .sign-table td { border: 1px solid #000; color: #000; }
-          .sign-table th { background-color: #e5e7eb !important; -webkit-print-color-adjust: exact; }
-          .print-system-only { visibility: visible !important; }
+          .print-modal { 
+            position: absolute !important; 
+            left: 0 !important; 
+            top: 0 !important; 
+            width: 100% !important; 
+            max-height: none !important; 
+            overflow: visible !important; 
+            border: none !important; 
+            box-shadow: none !important; 
+          }
+          
+          /* 隱藏不必要的按鈕與UI */
+          .no-print, .no-print * { display: none !important; visibility: hidden !important; }
+          
+          /* 防止表格與文字被切斷 */
+          table { page-break-inside: auto; width: 100%; }
+          tr { page-break-inside: avoid; page-break-after: auto; }
+          td, th { page-break-inside: avoid; }
+          h1, h2, h3, h4 { page-break-after: avoid; }
+          
+          /* 強制輸出背景顏色 */
+          .sign-table th { background-color: #e5e7eb !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .bg-gray-100 { background-color: #f3f4f6 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .bg-gray-50 { background-color: #f9fafb !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
       `}</style>
 
       {isModalOpen && editingProject && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm print:bg-white print:p-0">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl flex flex-col max-h-[95vh] print-modal print:max-h-none print:h-auto overflow-hidden print:overflow-visible relative" id="pdf-export-area">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm print:static print:bg-transparent print:p-0 print:block print:inset-auto print-modal-wrapper">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl flex flex-col max-h-[95vh] print-modal print:max-h-none print:h-auto print:block overflow-hidden print:overflow-visible relative print:static print:shadow-none" id="pdf-export-area">
             
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 no-print">
               <h2 className="text-xl font-bold text-gray-800">
@@ -1150,7 +1182,7 @@ export default function App() {
               <div className="flex items-center gap-2">
                 {modalMode === "view" && (
                   <>
-                    <button onClick={handleExportSystemPDF} className="flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded"><Printer className="w-4 h-4" /> 列印 PDF</button>
+                    <button onClick={handlePrintSingleProject} className="flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded"><Printer className="w-4 h-4" /> 列印 PDF</button>
                     <button onClick={() => exportSingleProjectToWord(editingProject)} className="flex items-center gap-1 text-sm bg-blue-50 text-blue-700 px-3 py-1.5 rounded"><FileType2 className="w-4 h-4" /> 下載 Word</button>
                   </>
                 )}
@@ -1161,19 +1193,16 @@ export default function App() {
             <div className="p-8 overflow-y-auto print:p-4 text-sm print:text-base text-gray-900 bg-white">
               {modalMode === "view" ? (
                 <div className="max-w-4xl mx-auto">
-                  <WorkflowProgressBar project={editingProject} />
-                  <h1 className="text-2xl font-bold text-center mb-6">行銷公關部 簽呈 Official application</h1>
-                  <table className="sign-table center">
-                    <thead><tr><th className="center w-1/5">簽核</th><th className="center w-1/5">經辦人</th><th className="center w-1/5">部門主管</th><th className="center w-1/5">營運主管</th><th className="center w-1/5">總經理</th></tr></thead>
-                    <tbody><tr><td className="h-16"></td><td></td><td></td><td></td><td></td></tr></tbody>
-                  </table>
+                  <div className="no-print"><WorkflowProgressBar project={editingProject} /></div>
+                  <h1 className="text-2xl font-bold text-center mb-6">{editingProject.creator?.split('-')[0]?.trim() || '行銷公關部'} 簽呈 Official application</h1>
+                  
                   <div className="mb-4 font-medium text-gray-700 print:text-black flex justify-between">
                     <span>Date 日期：{editingProject.applyDate}</span>
                     <span>Ref No 文檔號：{editingProject.refNo}</span>
                   </div>
                   <table className="sign-table">
                     <tbody>
-                      <tr><th className="w-32 center">專案類型</th><td className="font-bold text-indigo-600">{editingProject.projectType === 'room' ? '🏨 住房專案' : '☕ 休閒 / 餐飲專案'}</td></tr>
+                      <tr><th className="w-32 center">專案類型</th><td className="font-bold text-indigo-600 print:text-black">{editingProject.projectType === 'room' ? '🏨 住房專案' : '☕ 休閒 / 餐飲專案'}</td></tr>
                       <tr><th className="w-32 center">主旨</th><td className="font-bold text-lg">{editingProject.title}</td></tr>
                       <tr><th className="center">說明</th><td className="whitespace-pre-wrap">{editingProject.purpose}</td></tr>
                       <tr><th className="center">活動日期</th><td>{editingProject.startDate} ～ {editingProject.endDate}</td></tr>
@@ -1182,12 +1211,12 @@ export default function App() {
                     </tbody>
                   </table>
                   
-                  <h3 className="font-bold mb-2 text-lg">財務內拆表 (多重專案)</h3>
+                  <h3 className="font-bold mb-2 text-lg mt-6">財務內拆表 (多重專案)</h3>
                   {(editingProject.breakdown || []).map((pkg: any, idx: number) => {
                     const otaVal = pkg.ota ? Math.round((parseFloat(String(pkg.price).replace(/,/g, "")) || 0) * (parseFloat(pkg.ota) / 100)) : 0;
                     return (
                       <div key={pkg.id || idx} className="mb-6">
-                        <h4 className="font-bold text-indigo-800 mb-1">{pkg.name}</h4>
+                        <h4 className="font-bold text-indigo-800 print:text-black mb-1">{pkg.name}</h4>
                         <table className="sign-table center !mb-0">
                           <thead>
                             <tr>
@@ -1200,7 +1229,7 @@ export default function App() {
                           <tbody>
                             <tr>
                               <td className="font-medium">{pkg.price}</td>
-                              <td className="text-red-600 font-medium">{otaVal > 0 ? `- ${otaVal}` : "0"}</td>
+                              <td className="text-red-600 print:text-black font-medium">{otaVal > 0 ? `- ${otaVal}` : "0"}</td>
                               {(pkg.items || []).map((item: any, iIdx: number) => (<td key={iIdx}>{item.value}</td>))}
                               <td className="font-bold text-indigo-700 print:text-black text-lg">{pkg.net}</td>
                             </tr>
@@ -1211,7 +1240,7 @@ export default function App() {
                   })}
 
                   <div className="mt-6 mb-8">
-                    <h3 className="font-bold text-lg text-red-600 mb-2">專案亮點</h3>
+                    <h3 className="font-bold text-lg text-red-600 print:text-black mb-2">專案亮點</h3>
                     <p className="bg-red-50 p-4 rounded border font-medium whitespace-pre-wrap">{editingProject.highlights}</p>
                   </div>
                   <div className="mt-8">
@@ -1222,20 +1251,20 @@ export default function App() {
                   </div>
 
                   {editingProject.countersign?.length > 0 && (
-                    <div className="mt-8 no-print border border-gray-300 rounded-lg overflow-hidden shadow-sm">
-                      <div className="bg-gray-100 px-4 py-2 font-bold text-gray-800 border-b flex items-center gap-2"><PenTool className="w-4 h-4" /> 會簽意見</div>
+                    <div className="mt-8 border border-gray-300 rounded-lg overflow-hidden shadow-sm">
+                      <div className="bg-gray-100 px-4 py-2 font-bold text-gray-800 border-b flex items-center gap-2"><PenTool className="w-4 h-4 no-print" /> 會簽意見</div>
                       <div className="p-4 bg-gray-50 space-y-4">
                         {editingProject.countersign.map((c: any) => (
                           <div key={c.dept} className="flex flex-col border-b pb-3 last:border-0 last:pb-0">
                             <div className="flex items-center gap-2 mb-1">
                               <span className="font-bold text-gray-900 bg-white px-2 py-0.5 rounded border">{c.dept}</span>
-                              {c.status === "approved" ? (<span className="text-xs text-green-600 font-bold flex items-center gap-1"><CheckCircle className="w-3 h-3" /> 已確認 ({c.time})</span>) : (<span className="text-xs text-orange-600 font-bold">待確認...</span>)}
+                              {c.status === "approved" ? (<span className="text-xs text-green-600 print:text-black font-bold flex items-center gap-1"><CheckCircle className="w-3 h-3 no-print" /> 已確認 ({c.time})</span>) : (<span className="text-xs text-orange-600 print:text-black font-bold">待確認...</span>)}
                             </div>
                             {c.status === "approved" ? (
                               <div className="text-black font-bold whitespace-pre-wrap pl-1 border-l-4 border-gray-400 ml-1 mt-1 p-2 bg-white rounded">{c.comment || "無意見。"}</div>
                             ) : (
                               editingProject.status === "countersigning" && (currentUser?.dept === c.dept || currentUser?.role === "admin") && (
-                                <div className="flex gap-2 mt-2">
+                                <div className="flex gap-2 mt-2 no-print">
                                   <input type="text" id={`comment-${c.dept}`} className="flex-1 border rounded px-3 py-1.5 text-sm" placeholder={currentUser?.role === 'admin' ? "管理員強制代簽" : "請填寫會簽意見"} />
                                   <button onClick={() => submitDeptComment(c.dept, (document.getElementById(`comment-${c.dept}`) as HTMLInputElement).value)} className="bg-indigo-600 text-white px-4 py-1.5 rounded text-sm font-bold hover:bg-indigo-700">送出確認</button>
                                 </div>
@@ -1248,15 +1277,15 @@ export default function App() {
                   )}
 
                   {editingProject.status === "unconfirmed" && editingProject.feedback && (
-                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 mt-6 no-print">
-                      <div className="flex gap-2 text-orange-800 font-bold mb-1"><MessageSquare className="w-5 h-5" /> 主管退回意見：</div>
-                      <p className="text-orange-700 font-bold border-l-4 border-orange-400 pl-2 ml-1">{editingProject.feedback}</p>
+                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 mt-6">
+                      <div className="flex gap-2 text-orange-800 font-bold mb-1"><MessageSquare className="w-5 h-5 no-print" /> 主管退回意見：</div>
+                      <p className="text-orange-700 print:text-black font-bold border-l-4 border-orange-400 pl-2 ml-1">{editingProject.feedback}</p>
                     </div>
                   )}
                   {editingProject.status === "revision" && editingProject.feedback && (
-                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 mt-6 no-print">
-                      <div className="flex gap-2 text-orange-800 font-bold mb-1"><MessageSquare className="w-5 h-5" /> 主管退回意見：</div>
-                      <p className="text-orange-700 font-bold border-l-4 border-orange-400 pl-2 ml-1">{editingProject.feedback}</p>
+                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 mt-6">
+                      <div className="flex gap-2 text-orange-800 font-bold mb-1"><MessageSquare className="w-5 h-5 no-print" /> 主管退回意見：</div>
+                      <p className="text-orange-700 print:text-black font-bold border-l-4 border-orange-400 pl-2 ml-1">{editingProject.feedback}</p>
                     </div>
                   )}
 
