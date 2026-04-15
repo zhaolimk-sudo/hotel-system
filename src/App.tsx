@@ -25,22 +25,15 @@ const OFFICIAL_EVENTS = [
   { date: "12-31", name: "日月潭跨年晚會煙火秀" },
 ];
 
-const PUBLIC_HOLIDAYS = [
-  { date: "01-01", name: "元旦" }, { date: "02-16", name: "除夕" },
-  { date: "02-17", name: "春節 (初一)" }, { date: "02-18", name: "春節 (初二)" },
-  { date: "02-19", name: "春節 (初三)" }, { date: "02-20", name: "春節 (初四)" },
-  { date: "02-28", name: "和平紀念日" }, { date: "04-04", name: "兒童節" },
-  { date: "04-05", name: "清明節" }, { date: "06-19", name: "端午節" },
-  { date: "09-25", name: "中秋節" }, { date: "10-10", name: "國慶日" },
-];
-
-const PRESET_BREAKDOWN_ITEMS = ["早餐", "午餐", "下午茶", "晚餐", "宵夜", "DIY"];
-
 const MARKETING_EVENTS = [
   { date: "02-14", name: "西洋情人節" }, { date: "05-10", name: "母親節檔期" },
   { date: "08-08", name: "父親節" }, { date: "10-31", name: "萬聖節" },
   { date: "12-25", name: "聖誕節" },
 ];
+
+const PRESET_BREAKDOWN_ITEMS = ["早餐", "午餐", "下午茶", "晚餐", "宵夜", "DIY"];
+
+const DEPARTMENTS = ["客務部", "訂房組", "餐飲部", "休閒部", "業務部", "企劃部", "人資", "資訊", "總務", "採購", "財務部"];
 
 const ROLES_INFO: any = {
   guest: { name: "訪客 (僅觀看)", color: "text-gray-500", bg: "bg-gray-100" },
@@ -49,11 +42,43 @@ const ROLES_INFO: any = {
   admin: { name: "系統管理員", color: "text-purple-700", bg: "bg-purple-100" },
 };
 
-const DEPARTMENTS = ["客務部", "訂房組", "餐飲部", "休閒部", "業務部", "企劃部", "人資", "資訊", "總務", "採購", "財務部"];
+// 🌟 核心：依據年份嚴格隔離的假日資料庫
+const YEARLY_DATA: any = {
+  2026: {
+    bigHolidays: ["02-14", "02-15", "02-16", "02-17", "02-18", "02-19", "02-20"],
+    holidays: ["01-01", "01-02", "02-27", "02-28", "04-03", "04-04", "04-05", "05-01", "06-19", "06-20", "06-21", "09-25", "09-26", "09-27", "10-09", "10-10"],
+    events: {
+      "01-01": "元旦", "02-16": "除夕", "02-17": "春節 (初一)", "02-18": "春節 (初二)", "02-19": "春節 (初三)", "02-20": "春節 (初四)",
+      "02-28": "和平紀念日", "04-04": "兒童節", "04-05": "清明節", "06-19": "端午節", "09-25": "中秋節", "10-10": "國慶日"
+    }
+  },
+  2027: {
+    bigHolidays: [
+      "01-01", "01-02", "01-03", // 元旦連假
+      "02-04", "02-05", "02-06", "02-07", "02-08", "02-09", "02-10", // 春節連假
+      "02-27", "02-28", "03-01", // 和平紀念連假
+      "04-03", "04-04", "04-05", "04-06", // 兒童清明連假
+      "04-30", "05-01", "05-02", // 勞動節連假
+      "06-09", // 端午節
+      "09-15", // 中秋節
+      "10-09", "10-10", "10-11", // 國慶連假
+      "10-23", "10-24", "10-25", // 光復節連假
+      "12-24", "12-25", "12-26"  // 行憲紀念連假
+    ],
+    holidays: ["09-28"], // 教師節 (無連假)
+    events: {
+      "01-01": "元旦", "02-04": "小年夜", "02-05": "除夕", "02-06": "春節 (初一)", "02-07": "春節 (初二)", "02-08": "春節 (初三)", "02-09": "春節補假", "02-10": "春節補假",
+      "02-28": "和平紀念日", "04-04": "兒童節", "04-05": "清明節", "05-01": "勞動節",
+      "06-09": "端午節", "09-15": "中秋節", "09-28": "教師節", "10-10": "國慶日",
+      "10-25": "光復節", "12-25": "行憲紀念日"
+    }
+  }
+};
 
-// 🌟 安全的日曆生成邏輯 (嚴格隔離 2026 與 2027)
 const generateCalendar = (year: number, customEvents: any[]) => {
   const data: any = {};
+  const yearData = YEARLY_DATA[year] || { bigHolidays: [], holidays: [], events: {} };
+
   for (let m = 1; m <= 12; m++) {
     const daysInMonth = new Date(year, m, 0).getDate();
     for (let d = 1; d <= daysInMonth; d++) {
@@ -62,44 +87,41 @@ const generateCalendar = (year: number, customEvents: any[]) => {
       const day = dateObj.getDay();
       const md = `${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       
-      // 1. 最基礎的白紙狀態：週末=假日，平日=平日
+      // 1. 預設白紙狀態 (只有週末是假日)
       let type = (day === 6 || day === 0) ? "假日" : "平日";
       let events: string[] = [];
       let marketingEvents: string[] = [];
-      
-      // 節日名稱標籤 (每年固定顯示，不影響平旺日背景色)
-      const pubHoliday = PUBLIC_HOLIDAYS.find((e) => e.date === md);
-      if (pubHoliday) events.push(`🧨 ${pubHoliday.name}`);
 
-      const officialEvent = OFFICIAL_EVENTS.find((e) => e.date === md);
-      if (officialEvent) events.push(`✨ ${officialEvent.name}`);
-      
-      const mktEvent = MARKETING_EVENTS.find((e) => e.date === md);
-      if (mktEvent) marketingEvents.push(`🎯 ${mktEvent.name}`);
-
-      // 2. 🛡️ 嚴格隔離：只有 2026 年才套用寫死的飯店特殊「平旺假日」規則
-      if (year === 2026) {
-        const bigHolidays = ["02-14", "02-15", "02-16", "02-17", "02-18", "02-19", "02-20"];
-        const holidays = ["01-01", "01-02", "02-27", "02-28", "04-03", "04-04", "04-05", "05-01", "06-19", "06-20", "06-21", "09-25", "09-26", "09-27", "10-09", "10-10"];
+      // 2. 套用該年份專屬的平旺假日規則
+      if (yearData.bigHolidays.includes(md)) {
+        type = "大假日";
+      } else if (yearData.holidays.includes(md)) {
+        type = "假日";
+      } else if (type === "平日" && year === 2026) {
+        // 🛡️ 嚴格隔離：只有 2026 年才會套用之前的寒暑假旺日規則，2027年維持原樣
         const isWinterVacation = (m === 1 && d >= 21) || (m === 2 && d <= 13);
         const isSummerVacation = m === 7 || m === 8;
-
-        if (bigHolidays.includes(md) || md === "09-20") {
-          type = "大假日";
-        } else if (holidays.includes(md) || day === 6 || day === 0) {
-          type = "假日";
-        } else if (day === 5 || isWinterVacation || isSummerVacation) {
+        if (day === 5 || isWinterVacation || isSummerVacation) {
           type = "旺日";
-        } else {
-          type = "平日";
         }
       }
 
-      // 3. 👑 最高指揮權：如果 Supabase 資料庫有設定，直接無條件覆蓋！
+      // 3. 套用該年份專屬的節慶名稱
+      if (yearData.events[md]) {
+        events.push(`🧨 ${yearData.events[md]}`);
+      }
+
+      // 每年固定的公曆活動
+      const officialEvent = OFFICIAL_EVENTS.find((e) => e.date === md);
+      if (officialEvent) events.push(`✨ ${officialEvent.name}`);
+      const mktEvent = MARKETING_EVENTS.find((e) => e.date === md);
+      if (mktEvent) marketingEvents.push(`🎯 ${mktEvent.name}`);
+
+      // 4. 最高指揮限：Supabase 資料庫覆蓋
       if (customEvents && customEvents.length > 0) {
         const dbMatch = customEvents.find(e => e.date === dateStr);
         if (dbMatch) {
-          if (dbMatch.event_type) type = dbMatch.event_type; // 覆蓋平旺日顏色
+          if (dbMatch.event_type) type = dbMatch.event_type;
           if (dbMatch.event_name) {
             const icon = dbMatch.is_public_holiday ? '🧨' : '✨';
             const customName = `${icon} ${dbMatch.event_name}`;
@@ -189,7 +211,6 @@ export default function App() {
 
       const { data: projData } = await supabase.from("projects").select("*");
       if (projData) {
-        // 🛡️ 安全解析機制
         const parsedProjects = projData.map((p: any) => ({
           ...p,
           breakdown: typeof p.breakdown === "string" ? JSON.parse(p.breakdown || "{}") : (p.breakdown || {}),
@@ -322,7 +343,6 @@ export default function App() {
     return options;
   }, [projects, currentYear]);
 
-  // 將 dbEvents 作為生成月曆的依賴
   const calendarData = useMemo(() => generateCalendar(selectedYear, dbEvents), [selectedYear, dbEvents]);
   const [selectedMonthView, setSelectedMonthView] = useState<number | null>(null);
 
@@ -331,7 +351,6 @@ export default function App() {
   
   const filteredScheduledProjects = useMemo(() => {
     return scheduledProjects.filter((p) => {
-      // 🛡️ 安全部門過濾機制 (加回 p.creator && 保護)
       let passDept = ganttDeptFilter === "all" || (p.creator && p.creator.includes(ganttDeptFilter));
       let passMonth = true;
       if (ganttMonthFilter !== "all") {
@@ -345,7 +364,6 @@ export default function App() {
 
   const dashboardActiveProjects = useMemo(() => {
     return scheduledProjects.filter((p) => {
-      // 🛡️ 保護機制
       let passDept = dashboardDeptFilter === "all" || (p.creator && p.creator.includes(dashboardDeptFilter)) || (p.countersign && p.countersign.some((c: any) => c.dept === dashboardDeptFilter));
       let passMonth = true;
       if (dashboardMonthFilter !== "all") {
