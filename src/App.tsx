@@ -6,7 +6,8 @@ import {
   MessageSquare, List, Layout, UploadCloud, DownloadCloud, FileText,
   FileSearch, Check, FileDown, CalendarDays, Printer, FileType2, Trash2,
   Lock, UserCircle, Settings, LogOut, ShieldCheck, ArrowRight, PenTool,
-  ClipboardList, CheckSquare, PlayCircle, Milestone, Filter, Key
+  ClipboardList, CheckSquare, PlayCircle, Milestone, Filter, Key,
+  Percent
 } from "lucide-react";
 
 // ==========================================
@@ -173,7 +174,6 @@ export default function App() {
   const [modalMode, setModalMode] = useState("view");
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importText, setImportText] = useState("");
   const [importFile, setImportFile] = useState<File | null>(null);
 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -298,19 +298,26 @@ export default function App() {
   };
 
   const handleProcessImport = async () => {
-    let extractedContent = importText;
-    if (importFile) {
-      try {
-        const data = await importFile.arrayBuffer();
-        const workbook = XLSX.read(data);
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        extractedContent = XLSX.utils.sheet_to_txt(sheet);
-      } catch (error) {
-        alert("讀取 Excel 失敗");
-        return;
-      }
+    if (!importFile) {
+      alert("請先選擇要匯入的 Excel 檔案。");
+      return;
     }
-    if (!extractedContent.trim()) { alert("未偵測到內容"); return; }
+    
+    let extractedContent = "";
+    try {
+      const data = await importFile.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      extractedContent = XLSX.utils.sheet_to_txt(sheet);
+    } catch (error) {
+      alert("讀取 Excel 失敗，請確認檔案格式是否正確。");
+      return;
+    }
+
+    if (!extractedContent.trim()) { 
+      alert("未偵測到任何內容。"); 
+      return; 
+    }
 
     setIsImportModalOpen(false);
     const today = new Date();
@@ -319,15 +326,15 @@ export default function App() {
     
     setEditingProject({
       id: Date.now(),
-      title: "【從匯入自動建立】",
+      title: "【從 Excel 匯入建立】",
       refNo: `MPR-${twYear}-${mm}-${String(projects.length + 1).padStart(3, "0")}`,
       projectType: "leisure",
       applyDate: today.toISOString().split("T")[0],
       createTime: getCurrentTimeString(),
-      purpose: "以下為匯入之原始資料：\n\n" + extractedContent,
+      purpose: "",
       startDate: `${selectedYear}-01-01`,
       endDate: `${selectedYear}-01-31`,
-      content: "",
+      content: "【以下為匯入之原始資料，請參考並手動整理至對應欄位】\n\n" + extractedContent,
       precautions: "",
       highlights: "",
       breakdown: [{ id: Date.now(), name: "專案一", price: "", ota: "", items: [], net: "0" }],
@@ -338,7 +345,6 @@ export default function App() {
     });
     setModalMode("create");
     setIsModalOpen(true);
-    setImportText("");
     setImportFile(null);
   };
 
@@ -349,7 +355,6 @@ export default function App() {
     }
   }, [currentUser, currentMonthStr]);
 
-  // 🛡️ 加入防呆機制：確保舊資料沒有日期時不會崩潰
   const yearOptions = useMemo(() => {
     let minYear = currentYear - 1; let maxYear = currentYear + 2;
     projects.forEach((p) => {
@@ -366,7 +371,6 @@ export default function App() {
   const calendarData = useMemo(() => generateCalendar(selectedYear, dbEvents), [selectedYear, dbEvents]);
   const [selectedMonthView, setSelectedMonthView] = useState<number | null>(null);
 
-  // 🛡️ 防呆機制：過濾掉沒有 startDate 的舊專案
   const yearProjects = useMemo(() => projects.filter((p) => p.startDate && p.endDate && (p.startDate.startsWith(String(selectedYear)) || p.endDate.startsWith(String(selectedYear)))), [projects, selectedYear]);
   const scheduledProjects = useMemo(() => yearProjects.filter((p) => p.status === "scheduled"), [yearProjects]);
   
@@ -577,20 +581,36 @@ export default function App() {
     setTimeout(() => { window.print(); setIsPrintLayoutActive(false); }, 800);
   };
 
+  // 📝 Word 匯出：固定 4 欄的完美排版
   const exportSingleProjectToWord = (project: any) => {
     const header = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>簽呈匯出</title><style>body{font-family:"Microsoft JhengHei",Arial,sans-serif;}table{border-collapse:collapse;width:100%;margin-bottom:20px;}th,td{border:1px solid black;padding:8px;text-align:left;vertical-align:top;}.center{text-align:center;}.no-border{border:none;}.no-border td{border:none;padding:4px 0;} .comments { color: black; font-weight: bold; background-color: #f9fafb; padding: 10px; border: 1px solid #ccc; }</style></head><body>`;
     const formatText = (t: string) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
     
     let breakdownHtml = "";
     (project.breakdown || []).forEach((pkg: any) => {
-      const otaText = pkg.ota ? `OTA抽成(${pkg.ota}%)` : "OTA抽成";
       const otaVal = pkg.ota ? Math.round((parseFloat(String(pkg.price).replace(/,/g, ""))||0) * (parseFloat(pkg.ota)/100)) : 0;
-      const itemsHeader = (pkg.items || []).map((i: any) => `<th class="center">${formatText(i.name)}</th>`).join("");
-      const itemsData = (pkg.items || []).map((i: any) => `<td class="center">${formatText(i.value)}</td>`).join("");
       
-      breakdownHtml += `<h4 style="margin-bottom:5px;">${formatText(pkg.name)}</h4>
-        <table><tr><th class="center" width="20%">售價</th><th class="center" width="20%">${otaText}</th>${itemsHeader}<th class="center" width="20%">淨價</th></tr>
-        <tr><td class="center">${formatText(pkg.price)}</td><td class="center text-red-600">${otaVal > 0 ? "- " + otaVal : "0"}</td>${itemsData}<td class="center"><b>${formatText(pkg.net)}</b></td></tr></table>`;
+      // 將所有內部項目整理成一行字串 (用 <br/> 換行)
+      const itemsStr = (pkg.items || []).length > 0 
+        ? (pkg.items || []).map((i: any) => `${formatText(i.name)}: ${formatText(i.value)}`).join("<br/>") 
+        : "無內部扣除項目";
+      
+      // 🌟 固定 4 欄位：售價 / OTA / 內部項目 / 淨價
+      breakdownHtml += `<h4 style="margin-bottom:5px; color: #3730a3;">${formatText(pkg.name)}</h4>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;" border="1">
+          <tr style="background-color: #f3f4f6;">
+            <th class="center" width="20%">售價</th>
+            <th class="center" width="20%">OTA 抽成 (${pkg.ota || 0}%)</th>
+            <th class="center" width="40%">內部扣除項目</th>
+            <th class="center" width="20%">淨價</th>
+          </tr>
+          <tr>
+            <td class="center">${formatText(pkg.price)}</td>
+            <td class="center" style="color: red;">${otaVal > 0 ? "- " + otaVal : "0"}</td>
+            <td class="center" style="font-size: 0.9em; line-height: 1.5;">${itemsStr}</td>
+            <td class="center"><b style="color: #4f46e5; font-size: 1.1em;">${formatText(pkg.net)}</b></td>
+          </tr>
+        </table>`;
     });
 
     const commentsHtml = (project.countersign || []).map((c: any) => `<div>[${c.dept}] ${c.status === "approved" ? c.time + " - " + formatText(c.comment || "無意見") : "待確認..."}</div>`).join("");
@@ -926,17 +946,11 @@ export default function App() {
                 </select>
               </div>
               <div className="flex items-center gap-1 sm:gap-3">
-                <button onClick={() => setIsImportModalOpen(true)} className="text-white bg-green-600 hover:bg-green-700 px-2 sm:px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors shadow-sm">
-                  <UploadCloud className="w-4 h-4" /> <span className="hidden lg:inline">匯入資料</span>
-                </button>
+                <button onClick={() => setIsImportModalOpen(true)} className="text-white bg-green-600 hover:bg-green-700 px-2 sm:px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors shadow-sm"><UploadCloud className="w-4 h-4" /> <span className="hidden lg:inline">匯入資料</span></button>
                 <div className="h-4 sm:h-6 w-px bg-gray-200 mx-1 sm:mx-1"></div>
-                <button onClick={() => setIsExportModalOpen(true)} className="text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 px-2 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1">
-                  <DownloadCloud className="w-4 h-4" /> <span className="hidden lg:inline">匯出清單</span>
-                </button>
+                <button onClick={() => setIsExportModalOpen(true)} className="text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 px-2 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1"><DownloadCloud className="w-4 h-4" /> <span className="hidden lg:inline">匯出清單</span></button>
                 {currentUser?.role === "admin" && (
-                  <button onClick={() => setView("users")} className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1 border border-indigo-100 transition-colors">
-                    <Settings className="w-4 h-4" /> <span className="hidden lg:inline">後台管理</span>
-                  </button>
+                  <button onClick={() => setView("users")} className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1 border border-indigo-100 transition-colors"><Settings className="w-4 h-4" /> <span className="hidden lg:inline">後台管理</span></button>
                 )}
                 <div className="h-4 sm:h-6 w-px bg-gray-200 mx-1 sm:mx-2"></div>
                 <div className="flex items-center gap-1 sm:gap-2 px-1">
@@ -946,9 +960,7 @@ export default function App() {
                 {currentUser && currentUser.role !== "guest" && (<button onClick={() => setIsChangePwdModalOpen(true)} className="text-gray-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 sm:p-2 rounded-lg transition-colors" title="變更密碼"><Key className="w-4 h-4 sm:w-5 sm:h-5" /></button>)}
                 <button onClick={handleLogout} className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1.5 sm:p-2 rounded-lg transition-colors" title="登出"><LogOut className="w-4 h-4 sm:w-5 sm:h-5" /></button>
                 {currentUser?.role !== "guest" && (
-                  <button onClick={() => handleOpenCreate()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-2 sm:px-4 py-1.5 sm:py-2 ml-1 sm:ml-2 rounded-lg text-sm font-medium flex items-center gap-1 sm:gap-2 shadow-sm transition-colors">
-                    <Plus className="w-4 h-4" /> <span className="hidden md:inline">新增簽呈</span>
-                  </button>
+                  <button onClick={() => handleOpenCreate()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-2 sm:px-4 py-1.5 sm:py-2 ml-1 sm:ml-2 rounded-lg text-sm font-medium flex items-center gap-1 sm:gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> <span className="hidden md:inline">新增簽呈</span></button>
                 )}
               </div>
             </div>
@@ -1044,33 +1056,27 @@ export default function App() {
         </div>
       )}
 
-      {/* 匯入資料 Modal */}
+      {/* 匯入資料 Modal (已移除文字框，僅保留 Excel 上傳) */}
       {isImportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm no-print">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden">
             <div className="px-6 py-4 border-b flex justify-between bg-green-50">
-              <h2 className="text-lg font-bold text-green-900 flex items-center gap-2"><UploadCloud className="w-5 h-5" /> 匯入外部資料</h2>
+              <h2 className="text-lg font-bold text-green-900 flex items-center gap-2"><UploadCloud className="w-5 h-5" /> 匯入 Excel 資料</h2>
               <button onClick={() => setIsImportModalOpen(false)}><X className="w-5 h-5 text-gray-500 hover:text-gray-800" /></button>
             </div>
             <div className="p-6 space-y-4">
-              <p className="text-sm text-gray-600 mb-4">系統可讀取 <b className="text-green-600">Excel (.xlsx, .csv)</b> 檔案，或請直接貼上文件文字。<br/>讀取後會自動幫您填入「新增簽呈」的企劃目的欄位中。</p>
+              <p className="text-sm text-gray-600 mb-2">系統將讀取 <b className="text-green-600">Excel (.xlsx, .csv)</b> 檔案中的資料，並自動為您建立一份新的草稿簽呈。</p>
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center bg-gray-50 hover:bg-gray-100 transition-colors">
                 <input type="file" accept=".xlsx, .xls, .csv" className="hidden" id="excel-upload" onChange={(e) => setImportFile(e.target.files?.[0] || null)} />
                 <label htmlFor="excel-upload" className="cursor-pointer flex flex-col items-center justify-center">
                   <FileText className={`w-10 h-10 mb-2 ${importFile ? 'text-green-500' : 'text-gray-400'}`} />
-                  <span className="font-medium text-indigo-600 hover:text-indigo-800">{importFile ? `已選擇檔案：${importFile.name}` : "點擊上傳 Excel 檔案"}</span>
+                  <span className="font-medium text-indigo-600 hover:text-indigo-800">{importFile ? `已選擇檔案：${importFile.name}` : "點擊此處上傳 Excel 檔案"}</span>
                 </label>
               </div>
-              <div className="flex items-center gap-4 my-2"><div className="h-px bg-gray-200 flex-1"></div><span className="text-xs text-gray-400 font-bold">或者貼上純文字</span><div className="h-px bg-gray-200 flex-1"></div></div>
-              <textarea className="w-full border rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none h-32" placeholder="請在此貼上您的專案內容文字..." value={importText} onChange={(e) => setImportText(e.target.value)} disabled={importFile !== null}></textarea>
-              {importFile && <p className="text-xs text-orange-500 font-bold">* 已選擇檔案，文字框暫時停用。欲輸入文字請先清除檔案。</p>}
             </div>
-            <div className="px-6 py-4 bg-gray-50 flex justify-between items-center border-t border-gray-100">
-              <button onClick={() => { setImportFile(null); setImportText(""); }} className="text-gray-500 hover:text-red-500 text-sm font-medium">清除重設</button>
-              <div className="flex gap-2">
-                <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 text-gray-600 bg-white border rounded-lg font-medium text-sm">取消</button>
-                <button onClick={handleProcessImport} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-sm transition-colors">解析並建立簽呈</button>
-              </div>
+            <div className="px-6 py-4 bg-gray-50 flex justify-end items-center border-t border-gray-100 gap-2">
+              <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 text-gray-600 bg-white border rounded-lg font-medium text-sm">取消</button>
+              <button onClick={handleProcessImport} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-sm transition-colors">解析並建立簽呈</button>
             </div>
           </div>
         </div>
