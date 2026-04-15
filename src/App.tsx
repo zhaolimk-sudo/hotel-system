@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
-import * as XLSX from "xlsx"; // 🌟 新增：Excel 讀取套件
+import * as XLSX from "xlsx";
 import {
   Calendar,
   Clock,
@@ -55,7 +55,6 @@ const OFFICIAL_EVENTS = [
   { date: "12-31", name: "日月潭跨年晚會煙火秀" },
 ];
 
-// 🌟 新增：台灣傳統與國定假日 (明確顯示名稱)
 const PUBLIC_HOLIDAYS = [
   { date: "01-01", name: "元旦" },
   { date: "02-16", name: "除夕" },
@@ -99,24 +98,19 @@ const generateCalendar = (year: number) => {
       const dateObj = new Date(dateStr);
       const day = dateObj.getDay();
       const md = `${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-      
       let type = "平日";
       let events = [];
       let marketingEvents = [];
       
-      // 判斷國定假日 (春節、中秋等)
       const pubHoliday = PUBLIC_HOLIDAYS.find((e) => e.date === md);
       if (pubHoliday) events.push(`🧨 ${pubHoliday.name}`);
 
-      // 判斷官方活動
       const officialEvent = OFFICIAL_EVENTS.find((e) => e.date === md);
       if (officialEvent) events.push(`✨ ${officialEvent.name}`);
       
-      // 判斷行銷活動
       const mktEvent = MARKETING_EVENTS.find((e) => e.date === md);
       if (mktEvent) marketingEvents.push(`🎯 ${mktEvent.name}`);
 
-      // 飯店內部平假日定義
       let bigHolidays: string[] = [];
       let holidays: string[] = [];
       if (year === 2026) {
@@ -176,7 +170,6 @@ export default function App() {
   const [editingProject, setEditingProject] = useState<any>(null);
   const [modalMode, setModalMode] = useState("view");
 
-  // 🌟 新增：匯入專案的 Modal 狀態
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -231,31 +224,49 @@ export default function App() {
     if (error) alert("儲存失敗！" + error.message); else fetchData();
   };
 
-  // 🌟 新增：處理 Excel 與文字匯入
+  const handleSaveUser = async (e: any) => {
+    e.preventDefault();
+    const userId = editingUser.id || "u_" + Date.now();
+    const userToSave = { ...editingUser, id: userId };
+    const { error } = await supabase.from("users").upsert(userToSave);
+    if (error) alert("儲存帳號失敗！" + error.message);
+    else { fetchData(); setIsUserModalOpen(false); }
+  };
+
+  const handleDeleteUser = async (id: string) => {
+    if (window.confirm("確定要刪除此帳號嗎？")) {
+      const { error } = await supabase.from("users").delete().eq("id", id);
+      if (!error) fetchData();
+    }
+  };
+
+  const handleChangePassword = async (e: any) => {
+    e.preventDefault();
+    if (pwdForm.old !== currentUser.password) { alert("原密碼錯誤！"); return; }
+    if (pwdForm.new !== pwdForm.confirm) { alert("新密碼不一致！"); return; }
+    const updatedUser = { ...currentUser, password: pwdForm.new };
+    await supabase.from("users").upsert(updatedUser);
+    setCurrentUser(updatedUser);
+    if (localStorage.getItem("mpr_account") === currentUser.account) { localStorage.setItem("mpr_password", pwdForm.new); }
+    alert("密碼變更成功！"); setIsChangePwdModalOpen(false); setPwdForm({ old: "", new: "", confirm: "" });
+  };
+
   const handleProcessImport = async () => {
     let extractedContent = importText;
-
     if (importFile) {
       try {
         const data = await importFile.arrayBuffer();
         const workbook = XLSX.read(data);
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        // 將 Excel 轉為純文字 (CSV 格式顯示)
         extractedContent = XLSX.utils.sheet_to_txt(sheet);
       } catch (error) {
         alert("讀取 Excel 失敗，請確認檔案格式是否正確。");
         return;
       }
     }
+    if (!extractedContent.trim()) { alert("未偵測到任何內容，請手動輸入或選擇檔案。"); return; }
 
-    if (!extractedContent.trim()) {
-      alert("未偵測到任何內容，請手動輸入或選擇檔案。");
-      return;
-    }
-
-    // 關閉匯入視窗，開啟「新增簽呈」視窗，並把資料塞進去
     setIsImportModalOpen(false);
-    
     const today = new Date();
     const twYear = today.getFullYear() - 1911;
     const mm = String(today.getMonth() + 1).padStart(2, "0");
@@ -372,7 +383,7 @@ export default function App() {
       if (rememberMe) { localStorage.setItem("mpr_account", acc as string); localStorage.setItem("mpr_password", pass as string); localStorage.setItem("mpr_remember", "true"); } 
       else { localStorage.removeItem("mpr_account"); localStorage.removeItem("mpr_password"); localStorage.setItem("mpr_remember", "false"); }
       setCurrentUser(user); setView("app");
-    } else { alert("登入失敗：帳號或密碼錯誤！"); }
+    } else { alert("登入失敗：帳號或密碼錯誤！(請先確認您的 Supabase Table 是否有資料)"); }
   };
   const handleGuestLogin = () => { setCurrentUser({ id: "guest", name: "訪客", role: "guest", dept: "" }); setView("app"); };
   const handleLogout = () => { setCurrentUser(null); setView("login"); };
@@ -386,7 +397,231 @@ export default function App() {
     setModalMode("create"); setIsModalOpen(true);
   };
 
-  const handleSave = async (e: any) => { e.preventDefault(); let updatedProj = { ...editingProject }; if (modalMode === "create" && updatedProj.countersign.length === 0) updatedProj.status = "revision"; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
+  const handleSave = async (e: any) => { 
+    e.preventDefault(); 
+    let updatedProj = { ...editingProject }; 
+    if (modalMode === "create" && updatedProj.countersign.length === 0) updatedProj.status = "revision"; 
+    await saveProjectToDb(updatedProj); 
+    setIsModalOpen(false); 
+  };
+
+  const handleToggleDept = (dept: string) => {
+    const current = editingProject.countersign || [];
+    if (current.some((c: any) => c.dept === dept)) {
+      setEditingProject({ ...editingProject, countersign: current.filter((c: any) => c.dept !== dept) });
+    } else {
+      setEditingProject({ ...editingProject, countersign: [...current, { dept, status: "pending", comment: "", time: "" }] });
+    }
+  };
+
+  const submitDeptComment = async (deptName: string, comment: string) => {
+    const updatedCountersign = editingProject.countersign.map((c: any) => {
+      if (c.dept === deptName) return { ...c, status: "approved", comment, time: getCurrentTimeString() };
+      return c;
+    });
+    let nextStatus = editingProject.status;
+    if (updatedCountersign.every((c: any) => c.status === "approved")) nextStatus = "revision";
+    const updatedProj = { ...editingProject, countersign: updatedCountersign, status: nextStatus };
+    await saveProjectToDb(updatedProj);
+  };
+
+  const submitRevisionToManager = async () => { const updatedProj = { ...editingProject, status: "unconfirmed" }; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
+  const approveByManager = async () => { const updatedProj = { ...editingProject, status: "scheduled", feedback: "" }; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
+  const rejectByManager = async () => { const updatedProj = { ...editingProject, status: "revision" }; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
+
+  const calculateNetPrice = (currentBreakdown: any) => {
+    const totalPriceStr = currentBreakdown.price || "0";
+    const totalPrice = parseFloat(totalPriceStr.replace(/,/g, "")) || 0;
+    let totalDeductions = 0;
+    (currentBreakdown.items || []).forEach((item: any) => { totalDeductions += evaluateExpression(item.value); });
+    const netPrice = totalPrice - totalDeductions;
+    return new Intl.NumberFormat("en-US").format(netPrice);
+  };
+
+  const handleBreakdownPriceChange = (value: string) => {
+    const newBreakdown = { ...editingProject.breakdown, price: value };
+    newBreakdown.net = calculateNetPrice(newBreakdown);
+    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  };
+
+  const handleTogglePreset = (presetName: string) => {
+    let newItems = [...(editingProject.breakdown?.items || [])];
+    if (newItems.some((i) => i.name === presetName)) newItems = newItems.filter((i) => i.name !== presetName);
+    else newItems.push({ name: presetName, value: "" });
+    const newBreakdown = { ...editingProject.breakdown, items: newItems };
+    newBreakdown.net = calculateNetPrice(newBreakdown);
+    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  };
+
+  const handleAddBreakdownItem = () => {
+    const newBreakdown = { ...editingProject.breakdown, items: [...(editingProject.breakdown.items || []), { name: "新項目", value: "" }] };
+    newBreakdown.net = calculateNetPrice(newBreakdown);
+    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  };
+
+  const handleRemoveBreakdownItem = (index: number) => {
+    const newItems = [...editingProject.breakdown.items]; newItems.splice(index, 1);
+    const newBreakdown = { ...editingProject.breakdown, items: newItems };
+    newBreakdown.net = calculateNetPrice(newBreakdown);
+    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  };
+
+  const handleBreakdownItemChange = (index: number, field: string, value: string) => {
+    const newItems = [...editingProject.breakdown.items]; newItems[index][field] = value;
+    const newBreakdown = { ...editingProject.breakdown, items: newItems };
+    newBreakdown.net = calculateNetPrice(newBreakdown);
+    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  };
+
+  const handleExportSystemPDF = () => {
+    setIsPrintLayoutActive(true); setIsExportModalOpen(false);
+    setTimeout(() => { window.print(); setIsPrintLayoutActive(false); }, 800);
+  };
+
+  const exportSingleProjectToWord = (project: any) => {
+    const header = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>簽呈匯出</title><style>body{font-family:"Microsoft JhengHei",Arial,sans-serif;}table{border-collapse:collapse;width:100%;margin-bottom:20px;}th,td{border:1px solid black;padding:8px;text-align:left;vertical-align:top;}.center{text-align:center;}.no-border{border:none;}.no-border td{border:none;padding:4px 0;} .comments { color: black; font-weight: bold; background-color: #f9fafb; padding: 10px; border: 1px solid #ccc; }</style></head><body>`;
+    const formatText = (t: string) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
+    const itemsHeader = (project.breakdown?.items || []).map((i: any) => `<th class="center">${formatText(i.name)}</th>`).join("");
+    const itemsData = (project.breakdown?.items || []).map((i: any) => `<td class="center">${formatText(i.value)}</td>`).join("");
+    const commentsHtml = (project.countersign || []).map((c: any) => `<div>[${c.dept}] ${c.status === "approved" ? c.time + " - " + formatText(c.comment || "無意見") : "待確認..."}</div>`).join("");
+    const htmlContent = `<h2 class="center">行銷公關部 簽呈 Official application</h2><table><tr><th class="center" width="20%">簽核</th><th class="center" width="20%">經辦人</th><th class="center" width="20%">部門主管</th><th class="center" width="20%">營運主管</th><th class="center" width="20%">總經理</th></tr><tr><td height="60"></td><td></td><td></td><td></td><td></td></tr></table><table class="no-border"><tr><td class="no-border">Date 日期：${formatText(project.applyDate)}</td></tr><tr><td class="no-border">Ref No 文檔號：${formatText(project.refNo)}</td></tr></table><table><tr><th width="15%">主旨</th><td>${formatText(project.title)}</td></tr><tr><th>說明</th><td>${formatText(project.purpose)}</td></tr><tr><th>活動售價</th><td>${formatText(project.price)}</td></tr><tr><th>活動日期</th><td>${formatText(project.startDate)} ～ ${formatText(project.endDate)}</td></tr><tr><th>內容說明</th><td>${formatText(project.content)}</td></tr><tr><th>注意事項</th><td>${formatText(project.precautions)}</td></tr></table><h3>內拆表</h3><table><tr><th class="center">售價</th>${itemsHeader}<th class="center">淨價</th></tr><tr><td class="center">${formatText(project.breakdown?.price)}</td>${itemsData}<td class="center"><b>${formatText(project.breakdown?.net)}</b></td></tr></table><table><tr><th width="15%">專案亮點</th><td>${formatText(project.highlights)}</td></tr><tr><th>會簽單位</th><td>${formatText((project.countersign || []).map((c: any) => c.dept).join("、 "))}</td></tr></table>${commentsHtml ? `<h3>會簽單位意見備註</h3><div class="comments">${commentsHtml}</div>` : ""}`;
+    const blob = new Blob(["\ufeff", header + htmlContent + "</body></html>"], { type: "application/msword" });
+    const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `簽呈_${project.title.replace(/[\\/:*?"<>|]/g, "")}.doc`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
+  };
+
+  const handleExportListWord = () => {
+    let exportList = projects.filter((p) => {
+      const startY = parseInt(p.startDate.split("-")[0]); const endY = parseInt(p.endDate.split("-")[0]);
+      if (startY > exportConfig.year || endY < exportConfig.year) return false;
+      if (exportConfig.month !== "all") {
+        const startM = parseInt(p.startDate.split("-")[1]); const endM = parseInt(p.endDate.split("-")[1]); const targetM = parseInt(exportConfig.month);
+        return targetM >= startM && targetM <= endM;
+      }
+      return true;
+    });
+    const header = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>專案清單匯出</title><style>body{font-family:"Microsoft JhengHei",Arial,sans-serif;}table{border-collapse:collapse;width:100%;margin-bottom:20px;}th,td{border:1px solid black;padding:8px;text-align:left;vertical-align:top;}th{background-color:#f2f2f2;}</style></head><body>`;
+    const titleText = `${exportConfig.year} 年度 ${exportConfig.month === "all" ? "全年" : exportConfig.month + "月"} 專案清單`;
+    let htmlContent = `<h2>${titleText}</h2><table><tr><th>專案名稱</th><th>活動日期</th><th>專案狀態</th><th>提案人</th></tr>`;
+    if (exportList.length === 0) htmlContent += `<tr><td colspan="4">該區間尚無任何專案。</td></tr>`;
+    else exportList.forEach((p) => { htmlContent += `<tr><td>${p.title}</td><td>${p.startDate} ~ ${p.endDate}</td><td>${p.status}</td><td>${p.creator}</td></tr>`; });
+    htmlContent += `</table>`;
+    const blob = new Blob(["\ufeff", header + htmlContent + "</body></html>"], { type: "application/msword" });
+    const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `${titleText}.doc`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); setIsExportModalOpen(false);
+  };
+
+  const WorkflowProgressBar = ({ project }: any) => {
+    const isCountersignDone = project.status !== "countersigning" && project.status !== "start";
+    const isRevisionDone = ["unconfirmed", "scheduled"].includes(project.status);
+    const isApproved = project.status === "scheduled";
+    const pendingDepts = (project.countersign || []).filter((c: any) => c.status === "pending").map((c: any) => c.dept);
+    let countersignDesc = "無須會簽";
+    if (project.countersign?.length > 0) {
+      if (!isCountersignDone) countersignDesc = pendingDepts.length > 0 ? `待確認: ${pendingDepts.join("、")}` : "會簽完成，待提案人送交";
+      else countersignDesc = "會簽已全數完成";
+    }
+    const steps = [
+      { id: "start", label: "提案建立", desc: `${project.creator?.split("-")[0] || project.creator}\n${project.createTime || project.applyDate}`, done: true, active: false },
+      { id: "countersigning", label: "會簽單位確認中", desc: countersignDesc, done: isCountersignDone, active: project.status === "countersigning" },
+      { id: "revision", label: "版本確認", desc: isRevisionDone ? "已送交" : "提案人修改中", done: isRevisionDone, active: project.status === "revision" },
+      { id: "unconfirmed", label: "審核決議中", desc: isApproved ? "已核准" : "等待主管核准", done: isApproved, active: project.status === "unconfirmed" },
+      { id: "scheduled", label: "已排程", desc: "正式發佈", done: isApproved, active: isApproved },
+    ];
+    return (
+      <div className="flex items-start justify-between w-full mb-10 mt-2 relative no-print px-4">
+        <div className="absolute top-4 left-[10%] w-[80%] h-1.5 bg-gray-200 -z-10 rounded"></div>
+        <div className="absolute top-4 left-[10%] h-1.5 bg-indigo-500 -z-10 transition-all duration-500 rounded" style={{ width: `${(steps.filter((s) => s.done).length / (steps.length - 1)) * 80}%` }}></div>
+        {steps.map((step, idx) => (
+          <div key={step.id} className="flex flex-col items-center flex-1 z-10 relative group">
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shadow-md transition-all duration-300 ${step.done ? "bg-indigo-600 text-white" : step.active ? "bg-orange-500 text-white ring-4 ring-orange-100 scale-110" : "bg-gray-100 text-gray-400 border border-gray-300"}`}>
+              {step.done ? <Check className="w-5 h-5" /> : idx + 1}
+            </div>
+            <div className={`mt-3 text-xs font-bold text-center ${step.done || step.active ? "text-gray-800" : "text-gray-400"}`}>{step.label}</div>
+            <div className={`text-[10px] mt-1 whitespace-pre-wrap text-center ${step.done || step.active ? "text-indigo-600 font-medium" : "text-gray-400"}`}>{step.desc}</div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const MonthCalendarView = ({ month }: any) => {
+    const daysInMonth = new Date(selectedYear, month, 0).getDate();
+    const firstDay = new Date(selectedYear, month - 1, 1).getDay();
+    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+    const blanks = Array.from({ length: firstDay }, (_, i) => i);
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl overflow-hidden flex flex-col max-h-[95vh]">
+          <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-indigo-50">
+            <h2 className="text-xl font-bold text-indigo-900 flex items-center gap-2"><CalendarDays className="w-6 h-6" /> {selectedYear} 年 {month} 月 行事曆與專案排程</h2>
+            <button onClick={() => setSelectedMonthView(null)} className="text-gray-500 hover:text-gray-800"><X className="w-6 h-6" /></button>
+          </div>
+          <div className="p-6 overflow-y-auto bg-gray-50 flex-1">
+            <div className="grid grid-cols-7 gap-2 mb-2">
+              {["日", "一", "二", "三", "四", "五", "六"].map((d) => (<div key={d} className="text-center font-bold text-sm text-gray-500">{d}</div>))}
+            </div>
+            <div className="grid grid-cols-7 gap-2">
+              {blanks.map((b) => (<div key={`blank-${b}`} className="bg-transparent p-2 rounded-lg"></div>))}
+              {days.map((day) => {
+                const dateStr = `${selectedYear}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                const dailyData = calendarData[dateStr] || { type: "平日", events: [], marketingEvents: [] };
+                const st = CAL_STYLES[dailyData.type] || CAL_STYLES["平日"];
+                const dayProjects = yearProjects.filter((p) => p.startDate <= dateStr && p.endDate >= dateStr);
+                const totalItems = (dailyData.events?.length || 0) + (dailyData.marketingEvents?.length || 0) + dayProjects.length;
+                return (
+                  <div key={day} className={`min-h-[70px] md:min-h-[110px] border rounded-lg p-1 md:p-2 flex flex-col ${st.bg} ${st.border} cursor-pointer hover:ring-2 hover:ring-indigo-400 transition-all`} onClick={() => setSelectedDayInfo({ date: dateStr, dailyData, dayProjects, st })}>
+                    <div className="flex flex-col lg:flex-row justify-between items-center lg:items-start mb-1 gap-1 lg:gap-0">
+                      <span className={`font-bold text-sm ${st.text}`}>{day}</span>
+                      <span className={`text-[9px] md:text-[10px] px-1 rounded shadow-sm ${st.tag} whitespace-nowrap`}>{dailyData.type}</span>
+                    </div>
+                    {totalItems > 0 && (<div className="md:hidden mt-auto text-[10px] text-center font-bold text-indigo-600 bg-white border border-indigo-200 rounded py-0.5 shadow-sm">{totalItems} 備註</div>)}
+                    <div className="hidden md:block flex-1 space-y-1 mt-1 overflow-y-auto">
+                      {dailyData.events && dailyData.events.map((ev: any, idx: number) => (<div key={`ev-${idx}`} className="text-[10px] bg-yellow-100 text-yellow-800 border border-yellow-200 px-1 py-0.5 rounded mb-1 truncate" title={ev}>{ev}</div>))}
+                      {dailyData.marketingEvents && dailyData.marketingEvents.map((ev: any, idx: number) => (<div key={`mk-ev-${idx}`} className="text-[10px] bg-green-50 text-green-700 border border-green-200 px-1 py-0.5 rounded mb-1 truncate" title={ev}>{ev}</div>))}
+                      {dayProjects.map((p) => (<div key={p.id} className={`text-[10px] px-1.5 py-0.5 rounded truncate text-white shadow-sm ${p.status === "scheduled" ? "bg-indigo-500" : "bg-orange-400"}`} title={p.title}>{p.title}</div>))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const DashboardActiveProjectsCard = () => (
+    <div className="bg-white rounded-xl shadow-sm border border-indigo-200 p-5 lg:col-span-2 flex flex-col h-full min-h-[350px]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-gray-100 pb-3">
+        <div className="flex items-center gap-3 text-indigo-600"><PlayCircle className="w-6 h-6" /><h3 className="font-bold text-lg">目前進行專案 (已排程)</h3></div>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center bg-gray-50 rounded border border-gray-200 px-2 py-1">
+            <Filter className="w-3 h-3 text-gray-500 mr-1" />
+            <select className="bg-transparent text-sm outline-none text-gray-700 font-medium cursor-pointer" value={dashboardDeptFilter} onChange={(e) => setDashboardDeptFilter(e.target.value)}>
+              <option value="all">全館所有部門</option>
+              {DEPARTMENTS.map((d) => (<option key={d} value={d}>{d}</option>))}
+            </select>
+          </div>
+          <div className="flex items-center bg-gray-50 rounded border border-gray-200 px-2 py-1">
+            <Calendar className="w-3 h-3 text-gray-500 mr-1" />
+            <select className="bg-transparent text-sm outline-none text-gray-700 font-medium cursor-pointer" value={dashboardMonthFilter} onChange={(e) => setDashboardMonthFilter(e.target.value)}>
+              <option value="all">全年</option>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (<option key={m} value={m}>{m}月</option>))}
+            </select>
+          </div>
+        </div>
+      </div>
+      <p className="text-3xl font-black mb-4 text-indigo-700">{dashboardActiveProjects.length} <span className="text-sm text-gray-400 font-medium">個專案</span></p>
+      <div className="space-y-2 flex-1 overflow-y-auto pr-2">
+        {dashboardActiveProjects.length === 0 && (<div className="flex flex-col items-center justify-center h-full text-gray-400"><CheckCircle className="w-8 h-8 mb-2 opacity-20" /><p className="text-sm font-medium">該篩選條件下尚無進行中專案</p></div>)}
+        {dashboardActiveProjects.map((p) => (
+          <div key={p.id} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }} className="text-sm p-3 bg-indigo-50 border border-indigo-100 rounded-lg cursor-pointer hover:bg-indigo-100 flex flex-col sm:flex-row sm:justify-between sm:items-center text-indigo-800 transition-colors shadow-sm gap-2 sm:gap-0">
+            <span className="font-bold truncate">{p.title}</span>
+            <span className="text-xs text-indigo-600 shrink-0 bg-white px-2 py-1 rounded border border-indigo-200 font-medium">{p.startDate.substring(5).replace("-", "/")} ~ {p.endDate.substring(5).replace("-", "/")}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   if (isLoading) {
     return (
@@ -398,7 +633,6 @@ export default function App() {
   }
 
   if (view === "login") {
-    // 登入畫面 (省略詳細代碼保持篇幅，保留核心功能)
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
@@ -410,6 +644,7 @@ export default function App() {
             <form onSubmit={handleLoginSubmit} className="space-y-5">
               <div><label className="block text-sm font-medium mb-1">登入帳號</label><div className="relative"><UserCircle className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" /><input name="account" type="text" required defaultValue={savedAccount} className="w-full pl-10 p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" /></div></div>
               <div><label className="block text-sm font-medium mb-1">登入密碼</label><div className="relative"><Lock className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" /><input name="password" type="password" required defaultValue={savedPassword} className="w-full pl-10 p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" /></div></div>
+              <div className="flex items-center"><input id="rem" type="checkbox" className="mr-2 h-4 w-4 text-indigo-600" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} /><label htmlFor="rem" className="text-sm font-medium text-gray-700">記住密碼</label></div>
               <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 transition-colors text-white font-bold py-2.5 rounded-lg mt-4 shadow">登入系統</button>
             </form>
             <div className="mt-6 text-center border-t pt-4"><button onClick={handleGuestLogin} className="text-sm text-gray-500 hover:text-indigo-600">以訪客身分預覽</button></div>
@@ -419,167 +654,286 @@ export default function App() {
     );
   }
 
-  return (
-    <div className={`min-h-screen font-sans bg-slate-50 text-slate-800`}>
-      <header className="bg-white shadow-sm sticky top-0 z-20 print:hidden">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-1 sm:gap-2 text-indigo-600">
-            <Layout className="w-5 h-5 sm:w-6 sm:h-6" />
-            <h1 className="font-bold text-lg sm:text-xl tracking-wide hidden md:block">專案管理</h1>
-            <select className="ml-1 sm:ml-2 bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs sm:text-sm font-bold rounded-lg focus:ring-indigo-500 p-1.5 cursor-pointer outline-none" value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))}>
-              {yearOptions.map((y) => (<option key={y} value={y}>{y} 年</option>))}
-            </select>
-          </div>
-          <div className="flex items-center gap-1 sm:gap-3">
-            
-            {/* 🌟 匯入專案按鈕 */}
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="text-white bg-green-600 hover:bg-green-700 px-2 sm:px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors shadow-sm"
-            >
-              <UploadCloud className="w-4 h-4" /> 
-              <span className="hidden lg:inline">匯入資料 (Excel/文字)</span>
-            </button>
-
-            <div className="h-4 sm:h-6 w-px bg-gray-200 mx-1 sm:mx-1"></div>
-
-            <button onClick={() => setIsExportModalOpen(true)} className="text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 px-2 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1">
-              <DownloadCloud className="w-4 h-4" /> <span className="hidden lg:inline">匯出清單</span>
-            </button>
-
-            <div className="h-4 sm:h-6 w-px bg-gray-200 mx-1 sm:mx-2"></div>
-            <div className="flex items-center gap-1 sm:gap-2 px-1">
-              <span className={`hidden md:inline px-2 py-0.5 rounded text-xs font-bold ${ROLES_INFO[currentUser?.role || "guest"]?.bg} ${ROLES_INFO[currentUser?.role || "guest"]?.color}`}>{currentUser?.dept || "訪客"}</span>
+  if (view === "users") {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-800">
+        <header className="bg-white shadow-sm sticky top-0 z-20">
+          <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-indigo-600"><ShieldCheck className="w-6 h-6" /><h1 className="font-bold text-xl tracking-wide">系統後台 - 帳號密碼管理</h1></div>
+            <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-gray-700 max-w-[80px] sm:max-w-none truncate">{currentUser?.name}</span>
+              <button onClick={() => setIsChangePwdModalOpen(true)} className="text-gray-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 sm:p-2 rounded-lg transition-colors" title="變更密碼"><Key className="w-4 h-4 sm:w-5 sm:h-5" /></button>
+              <button onClick={() => setView("app")} className="text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-lg text-sm font-medium transition-colors ml-2 border border-gray-200">返回主系統</button>
             </div>
-            <button onClick={handleLogout} className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1.5 sm:p-2 rounded-lg transition-colors"><LogOut className="w-4 h-4 sm:w-5 sm:h-5" /></button>
-            {currentUser?.role !== "guest" && (
-              <button onClick={() => handleOpenCreate()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-2 sm:px-4 py-1.5 sm:py-2 ml-1 sm:ml-2 rounded-lg text-sm font-medium flex items-center gap-1 sm:gap-2 shadow-sm transition-colors">
-                <Plus className="w-4 h-4" /> <span className="hidden md:inline">新增簽呈</span>
-              </button>
-            )}
           </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-        <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex flex-wrap gap-4 text-sm items-center">
-          <span className="font-bold text-gray-600">行事曆圖例：</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-white border border-gray-300"></span>平日</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-100 border border-blue-300"></span>旺日</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-pink-100 border border-pink-300"></span>假日</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100 border border-red-300"></span>大假日 (如除夕、春節、跨年)</span>
-        </div>
-
-        {/* 🌟 匯入資料的 Modal 視窗 */}
-        {isImportModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden">
-              <div className="px-6 py-4 border-b flex justify-between bg-green-50">
-                <h2 className="text-lg font-bold text-green-900 flex items-center gap-2">
-                  <UploadCloud className="w-5 h-5" /> 匯入外部資料
-                </h2>
-                <button onClick={() => setIsImportModalOpen(false)}>
-                  <X className="w-5 h-5 text-gray-500 hover:text-gray-800" />
-                </button>
-              </div>
-              <div className="p-6 space-y-4">
-                <p className="text-sm text-gray-600 mb-4">
-                  系統可讀取 <b className="text-green-600">Excel (.xlsx, .csv)</b> 檔案，或請直接貼上文件文字。<br/>
-                  讀取後會自動幫您填入「新增簽呈」的企劃目的欄位中。
-                </p>
-                
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center bg-gray-50 hover:bg-gray-100 transition-colors">
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls, .csv"
-                    className="hidden"
-                    id="excel-upload"
-                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                  />
-                  <label htmlFor="excel-upload" className="cursor-pointer flex flex-col items-center justify-center">
-                    <FileText className={`w-10 h-10 mb-2 ${importFile ? 'text-green-500' : 'text-gray-400'}`} />
-                    <span className="font-medium text-indigo-600 hover:text-indigo-800">
-                      {importFile ? `已選擇檔案：${importFile.name}` : "點擊上傳 Excel 檔案"}
-                    </span>
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-4 my-2">
-                  <div className="h-px bg-gray-200 flex-1"></div>
-                  <span className="text-xs text-gray-400 font-bold">或者貼上純文字</span>
-                  <div className="h-px bg-gray-200 flex-1"></div>
-                </div>
-
-                <textarea
-                  className="w-full border rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none h-32"
-                  placeholder="請在此貼上您的專案內容文字..."
-                  value={importText}
-                  onChange={(e) => setImportText(e.target.value)}
-                  disabled={importFile !== null}
-                ></textarea>
-                {importFile && <p className="text-xs text-orange-500 font-bold">* 已選擇檔案，文字框暫時停用。欲輸入文字請先清除檔案。</p>}
-              </div>
-              
-              <div className="px-6 py-4 bg-gray-50 flex justify-between items-center border-t border-gray-100">
-                <button
-                  onClick={() => { setImportFile(null); setImportText(""); }}
-                  className="text-gray-500 hover:text-red-500 text-sm font-medium"
-                >
-                  清除重設
-                </button>
-                <div className="flex gap-2">
-                  <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 text-gray-600 bg-white border rounded-lg font-medium text-sm">取消</button>
-                  <button
-                    onClick={handleProcessImport}
-                    className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-sm transition-colors"
-                  >
-                    解析並建立簽呈
-                  </button>
-                </div>
-              </div>
+        </header>
+        <main className="max-w-5xl mx-auto px-4 py-8">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+              <h2 className="font-bold text-gray-800">使用者列表</h2>
+              <button onClick={() => { setEditingUser({ account: "", password: "", name: "", role: "employee", dept: "企劃部" }); setIsUserModalOpen(true); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-1 shadow-sm hover:bg-indigo-700"><Plus className="w-4 h-4" /> 新增帳號</button>
             </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[600px]">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-sm">
+                    <th className="p-4">姓名</th><th className="p-4">所屬部門</th><th className="p-4">登入帳號</th><th className="p-4">登入密碼</th><th className="p-4">系統權限</th><th className="p-4 text-center">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="p-4 font-medium">{u.name}</td><td className="p-4">{u.dept}</td><td className="p-4">{u.account}</td><td className="p-4 text-gray-400">••••</td>
+                      <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${ROLES_INFO[u.role]?.bg || "bg-gray-100"} ${ROLES_INFO[u.role]?.color || "text-gray-700"}`}>{ROLES_INFO[u.role]?.name || u.role}</span></td>
+                      <td className="p-4 flex justify-center gap-2">
+                        {u.account !== "admin" ? (
+                          <><button onClick={() => { setEditingUser({ ...u }); setIsUserModalOpen(true); }} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded"><Edit className="w-4 h-4" /></button>
+                          <button onClick={() => handleDeleteUser(u.id)} className="text-red-600 hover:bg-red-50 p-2 rounded"><Trash2 className="w-4 h-4" /></button></>
+                        ) : (<span className="text-xs font-bold text-gray-400 px-2 py-2">預設管理員</span>)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+
+        {isUserModalOpen && editingUser && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <form onSubmit={handleSaveUser} className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden">
+              <div className="px-6 py-4 border-b flex justify-between"><h2 className="font-bold">{editingUser.id ? "編輯帳號" : "新增帳號"}</h2><button type="button" onClick={() => setIsUserModalOpen(false)}><X className="w-5 h-5" /></button></div>
+              <div className="p-6 space-y-4 text-sm">
+                <div><label className="block mb-1 font-medium">姓名</label><input type="text" required className="w-full border rounded p-2 outline-none focus:ring-2 focus:ring-indigo-500" value={editingUser.name} onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })} /></div>
+                <div><label className="block mb-1 font-medium">所屬部門</label><select className="w-full border rounded p-2 outline-none focus:ring-2 focus:ring-indigo-500" value={editingUser.dept} onChange={(e) => setEditingUser({ ...editingUser, dept: e.target.value })}>{DEPARTMENTS.map((d) => (<option key={d} value={d}>{d}</option>))}<option value="管理層">管理層</option><option value="系統管理">系統管理</option></select></div>
+                <div><label className="block mb-1 font-medium">登入帳號</label><input type="text" required className="w-full border rounded p-2 outline-none focus:ring-2 focus:ring-indigo-500" value={editingUser.account} onChange={(e) => setEditingUser({ ...editingUser, account: e.target.value })} /></div>
+                <div><label className="block mb-1 font-medium">登入密碼</label><input type="text" required className="w-full border rounded p-2 outline-none focus:ring-2 focus:ring-indigo-500" value={editingUser.password} onChange={(e) => setEditingUser({ ...editingUser, password: e.target.value })} /></div>
+                <div><label className="block mb-1 font-medium">系統權限</label><select className="w-full border rounded p-2 outline-none focus:ring-2 focus:ring-indigo-500" value={editingUser.role} onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}><option value="employee">一般員工/各部門 (可提案/會簽)</option><option value="gm">總經理 (觀看/審核簽呈)</option><option value="admin">系統管理員 (所有權限)</option></select></div>
+              </div>
+              <div className="px-6 py-4 bg-gray-50 flex justify-end gap-2"><button type="button" onClick={() => setIsUserModalOpen(false)} className="px-4 py-2 text-gray-600">取消</button><button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded">儲存帳號</button></div>
+            </form>
           </div>
         )}
+      </div>
+    );
+  }
 
-        {/* --- 月曆區塊 (保留原本代碼) --- */}
-        <section className={`bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden`}>
-          <div className="p-4 border-b border-gray-200 bg-gray-50 flex flex-col md:flex-row justify-between md:items-center">
-            <h2 className="text-lg font-bold flex items-center gap-2 text-gray-800">
-              <Calendar className="w-5 h-5 text-indigo-600" /> {selectedYear} 年度專案甘特圖 (全館)
-            </h2>
+  return (
+    <div className={`min-h-screen font-sans ${isPrintLayoutActive ? "bg-white" : "bg-slate-50 text-slate-800"}`}>
+      {/* --- 特殊列印排版 --- */}
+      {isPrintLayoutActive && (
+        <div className="bg-white min-h-screen pb-12 font-sans" id="pdf-export-area">
+          <div className="fixed top-0 left-0 w-full bg-slate-800 text-white p-3 flex justify-between items-center z-[100] print:hidden shadow-md">
+            <div className="font-medium flex items-center gap-2"><Printer className="w-5 h-5" /> 列印預覽模式 </div>
+            <div className="flex gap-3">
+              <button onClick={() => window.print()} className="bg-indigo-500 hover:bg-indigo-600 px-4 py-1.5 rounded font-medium text-sm shadow">列印 (或 Ctrl+P)</button>
+              <button onClick={() => setIsPrintLayoutActive(false)} className="bg-slate-600 hover:bg-slate-700 px-4 py-1.5 rounded font-medium text-sm">退出預覽</button>
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <div className="min-w-[800px]">
-              <div className="flex border-b border-gray-200 bg-gray-50">
-                <div className="w-48 flex-shrink-0 p-3 border-r border-gray-200 font-semibold text-gray-600 text-sm">專案名稱</div>
-                <div className="flex-1 grid grid-cols-12">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
-                    <div key={m} onClick={() => setSelectedMonthView(m)} className={`border-r border-gray-200 p-2 text-center text-xs font-medium cursor-pointer hover:bg-indigo-100`}>{m}月</div>
-                  ))}
+          <div className="p-4 sm:p-8 max-w-5xl mx-auto mt-16 print:mt-0 print:p-0">
+            <h1 className="text-2xl sm:text-3xl font-bold text-center mb-8">{exportConfig.year} 年度 {exportConfig.month === "all" ? "全年" : `${exportConfig.month}月`} 專案清單</h1>
+            <table className="w-full border-collapse border border-gray-400 mb-8 text-sm">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="border border-gray-400 p-2 text-left">專案名稱</th><th className="border border-gray-400 p-2 text-center w-48">活動期間</th><th className="border border-gray-400 p-2 text-center w-32">狀態</th><th className="border border-gray-400 p-2 text-center w-32">提案人</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projects.filter((p) => {
+                  const startY = parseInt(p.startDate.split("-")[0]); const endY = parseInt(p.endDate.split("-")[0]);
+                  if (startY > exportConfig.year || endY < exportConfig.year) return false;
+                  if (exportConfig.month !== "all") { const startM = parseInt(p.startDate.split("-")[1]); const endM = parseInt(p.endDate.split("-")[1]); const targetM = parseInt(exportConfig.month); return targetM >= startM && targetM <= endM; }
+                  return true;
+                }).map((p) => (
+                  <tr key={p.id}>
+                    <td className="border border-gray-400 p-2 font-medium">{p.title}</td><td className="border border-gray-400 p-2 text-center">{p.startDate} ~ {p.endDate}</td>
+                    <td className="border border-gray-400 p-2 text-center">{p.status === "scheduled" ? "已排程" : p.status === "unconfirmed" ? "主管審核中" : p.status === "revision" ? "提案人版本確認中" : "單位會簽中"}</td>
+                    <td className="border border-gray-400 p-2 text-center">{p.creator?.split("-")[0] || ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* --- 一般主介面 --- */}
+      {!isPrintLayoutActive && (
+        <>
+          <header className="bg-white shadow-sm sticky top-0 z-20 print:hidden">
+            <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+              <div className="flex items-center gap-1 sm:gap-2 text-indigo-600">
+                <Layout className="w-5 h-5 sm:w-6 sm:h-6" />
+                <h1 className="font-bold text-lg sm:text-xl tracking-wide hidden md:block">專案管理</h1>
+                <select className="ml-1 sm:ml-2 bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs sm:text-sm font-bold rounded-lg focus:ring-indigo-500 p-1.5 cursor-pointer outline-none" value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))}>
+                  {yearOptions.map((y) => (<option key={y} value={y}>{y} 年</option>))}
+                </select>
+              </div>
+              <div className="flex items-center gap-1 sm:gap-3">
+                <button onClick={() => setIsImportModalOpen(true)} className="text-white bg-green-600 hover:bg-green-700 px-2 sm:px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors shadow-sm">
+                  <UploadCloud className="w-4 h-4" /> <span className="hidden lg:inline">匯入資料 (Excel/文字)</span>
+                </button>
+                <div className="h-4 sm:h-6 w-px bg-gray-200 mx-1 sm:mx-1"></div>
+                <button onClick={() => setIsExportModalOpen(true)} className="text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 px-2 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1">
+                  <DownloadCloud className="w-4 h-4" /> <span className="hidden lg:inline">匯出清單</span>
+                </button>
+                {currentUser?.role === "admin" && (
+                  <button onClick={() => setView("users")} className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1 border border-indigo-100 transition-colors">
+                    <Settings className="w-4 h-4" /> <span className="hidden lg:inline">後台管理</span>
+                  </button>
+                )}
+                <div className="h-4 sm:h-6 w-px bg-gray-200 mx-1 sm:mx-2"></div>
+                <div className="flex items-center gap-1 sm:gap-2 px-1">
+                  <span className={`hidden md:inline px-2 py-0.5 rounded text-xs font-bold ${ROLES_INFO[currentUser?.role || "guest"]?.bg} ${ROLES_INFO[currentUser?.role || "guest"]?.color}`}>{currentUser?.dept || "訪客"}</span>
+                  <span className="text-sm font-medium text-gray-700 max-w-[80px] sm:max-w-none truncate">{currentUser?.name}</span>
+                </div>
+                {currentUser && currentUser.role !== "guest" && (
+                  <button onClick={() => setIsChangePwdModalOpen(true)} className="text-gray-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 sm:p-2 rounded-lg transition-colors" title="變更密碼"><Key className="w-4 h-4 sm:w-5 sm:h-5" /></button>
+                )}
+                <button onClick={handleLogout} className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1.5 sm:p-2 rounded-lg transition-colors" title="登出"><LogOut className="w-4 h-4 sm:w-5 sm:h-5" /></button>
+                {currentUser?.role !== "guest" && (
+                  <button onClick={() => handleOpenCreate()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-2 sm:px-4 py-1.5 sm:py-2 ml-1 sm:ml-2 rounded-lg text-sm font-medium flex items-center gap-1 sm:gap-2 shadow-sm transition-colors">
+                    <Plus className="w-4 h-4" /> <span className="hidden md:inline">新增簽呈</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+            {currentUser && currentUser.role !== "guest" && (
+              <section className="mb-8">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">👋 歡迎回來，{currentUser.name} <span className="text-sm text-gray-500 font-medium ml-2">({currentUser.dept} 專屬主控板)</span></h2>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {currentUser.role === "employee" && (
+                    <><div className="lg:col-span-1 flex flex-col gap-6">
+                        <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-5 flex-1 flex flex-col min-h-[200px]">
+                          <div className="flex items-center gap-3 mb-4 text-orange-600"><AlertCircle className="w-6 h-6" /><h3 className="font-bold text-lg">待我會辦的專案</h3></div>
+                          <p className="text-3xl font-black mb-4">{myPendingCountersign.length}</p>
+                          <div className="space-y-2 flex-1 overflow-y-auto pr-2">
+                            {myPendingCountersign.length === 0 && (<p className="text-sm text-gray-400">目前無待會辦事項</p>)}
+                            {myPendingCountersign.map((p) => (<div key={p.id} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }} className="text-sm p-3 bg-orange-50 border border-orange-100 rounded cursor-pointer hover:bg-orange-100 truncate text-orange-800 shadow-sm font-medium">{p.title}</div>))}
+                          </div>
+                        </div>
+                        <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-5 flex-1 flex flex-col min-h-[200px]">
+                          <div className="flex items-center gap-3 mb-4 text-blue-600"><PenTool className="w-6 h-6" /><h3 className="font-bold text-lg">我的提案 (待處理)</h3></div>
+                          <p className="text-3xl font-black mb-4">{myOwnProposals.length}</p>
+                          <div className="space-y-2 flex-1 overflow-y-auto pr-2">
+                            {myOwnProposals.length === 0 && (<p className="text-sm text-gray-400">尚無進行中的提案</p>)}
+                            {myOwnProposals.map((p) => (
+                              <div key={p.id} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }} className="text-sm p-2 bg-blue-50 border border-blue-100 rounded cursor-pointer hover:bg-blue-100 text-blue-800 shadow-sm flex flex-col gap-1">
+                                <span className="font-bold truncate">{p.title}</span>
+                                <span className={`self-start font-bold shrink-0 px-2 py-0.5 rounded text-[10px] ${p.status === "revision" ? "bg-red-500 text-white" : "bg-white text-blue-600 border border-blue-200"}`}>{p.status === "revision" ? "等待我確認修改" : p.status === "unconfirmed" ? "送交主管審核中" : "單位會簽中"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <DashboardActiveProjectsCard />
+                    </>
+                  )}
+                  {["admin", "gm"].includes(currentUser.role) && (
+                    <><div className="lg:col-span-1 flex flex-col gap-6">
+                        <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-5 relative overflow-hidden flex-1 flex flex-col min-h-[300px]">
+                          <div className="absolute top-0 right-0 w-2 h-full bg-orange-500"></div>
+                          <div className="flex items-center gap-3 mb-4 text-orange-600"><ClipboardList className="w-6 h-6" /><h3 className="font-bold text-lg">待審核簽呈 (決議中)</h3></div>
+                          <p className="text-3xl font-black mb-4 text-orange-600">{managerPendingApproval.length} <span className="text-sm text-gray-400 font-medium">件</span></p>
+                          <div className="space-y-2 flex-1 overflow-y-auto pr-2">
+                            {managerPendingApproval.length === 0 && (<p className="text-sm text-gray-400">目前無待審核事項</p>)}
+                            {managerPendingApproval.map((p) => (<div key={p.id} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }} className="text-sm p-3 bg-orange-50 border border-orange-100 rounded cursor-pointer hover:bg-orange-100 truncate text-orange-800 font-bold shadow-sm">{p.title}</div>))}
+                          </div>
+                        </div>
+                      </div>
+                      <DashboardActiveProjectsCard />
+                    </>
+                  )}
+                </div>
+              </section>
+            )}
+
+            <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex flex-wrap gap-4 text-sm items-center">
+              <span className="font-bold text-gray-600">行事曆圖例：</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-white border border-gray-300"></span>平日</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-100 border border-blue-300"></span>旺日</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-pink-100 border border-pink-300"></span>假日</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100 border border-red-300"></span>大假日 (如除夕、春節、跨年)</span>
+            </div>
+
+            {/* 甘特圖區塊 */}
+            <section className={`bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden`}>
+              <div className="p-4 border-b border-gray-200 bg-gray-50 flex flex-col md:flex-row justify-between md:items-center gap-4">
+                <h2 className="text-lg font-bold flex items-center gap-2 text-gray-800"><Calendar className="w-5 h-5 text-indigo-600" /> {selectedYear} 年度專案甘特圖 (全館)</h2>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2"><Filter className="w-4 h-4 text-gray-500" /><span className="text-sm font-bold text-gray-700">部門:</span><select className="border border-gray-300 rounded p-1 text-sm outline-none focus:border-indigo-500 bg-white" value={ganttDeptFilter} onChange={(e) => setGanttDeptFilter(e.target.value)}><option value="all">全部</option>{DEPARTMENTS.map((d) => (<option key={d} value={d}>{d}</option>))}</select></div>
+                  <div className="flex items-center gap-2"><span className="text-sm font-bold text-gray-700">月份:</span><select className="border border-gray-300 rounded p-1 text-sm outline-none focus:border-indigo-500 bg-white" value={ganttMonthFilter} onChange={(e) => setGanttMonthFilter(e.target.value)}><option value="all">全年</option>{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (<option key={m} value={m}>{m}月</option>))}</select></div>
                 </div>
               </div>
-              <div className="relative">
-                <div className="absolute inset-0 flex ml-48 pointer-events-none">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (<div key={`bg-${m}`} className="flex-1 border-r border-gray-100"></div>))}
-                </div>
-                <div className="relative z-10">
-                  {filteredScheduledProjects.map((p) => (
-                    <div key={p.id} className="flex items-center group cursor-pointer border-b border-gray-100 hover:bg-gray-50" onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }}>
-                      <div className="w-48 flex-shrink-0 p-3 pr-4 border-r border-gray-200"><div className="font-medium text-sm text-gray-800 truncate">{p.title}</div><div className="text-xs text-gray-400 mt-1">{p.startDate.substring(5)} ~ {p.endDate.substring(5)}</div></div>
-                      <div className="flex-1 relative h-12"><div className={`absolute top-3 bottom-3 rounded-md shadow-sm bg-indigo-500`} style={getBarStyles(p.startDate, p.endDate)}><div className="px-2 text-xs text-white leading-6 truncate">{p.title}</div></div></div>
+              <div className="overflow-x-auto">
+                <div className="min-w-[800px]">
+                  <div className="flex border-b border-gray-200 bg-gray-50">
+                    <div className="w-48 flex-shrink-0 p-3 border-r border-gray-200 font-semibold text-gray-600 text-sm">專案名稱</div>
+                    <div className="flex-1 grid grid-cols-12">
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (<div key={m} onClick={() => setSelectedMonthView(m)} className={`border-r border-gray-200 p-2 text-center text-xs font-medium cursor-pointer hover:bg-indigo-100 transition-colors text-gray-700`} title="點擊查看本月詳細平旺日與活動">{m}月</div>))}
                     </div>
-                  ))}
+                  </div>
+                  <div className="relative">
+                    <div className="absolute inset-0 flex ml-48 pointer-events-none">
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (<div key={`bg-${m}`} className="flex-1 border-r border-gray-100"></div>))}
+                    </div>
+                    <div className="relative z-10">
+                      {filteredScheduledProjects.length === 0 && (<div className="py-12 text-center text-gray-400 font-medium bg-gray-50/50">此條件下尚未有符合的專案排程</div>)}
+                      {filteredScheduledProjects.map((p) => (
+                        <div key={p.id} className="flex items-center group cursor-pointer border-b border-gray-100 hover:bg-gray-50 transition-colors" onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }}>
+                          <div className="w-48 flex-shrink-0 p-3 pr-4 border-r border-gray-200"><div className="font-medium text-sm text-gray-800 truncate">{p.title}</div><div className="text-xs text-gray-400 mt-1">{p.startDate.substring(5)} ~ {p.endDate.substring(5)}</div></div>
+                          <div className="flex-1 relative h-12"><div className={`absolute top-3 bottom-3 rounded-md shadow-sm transition-all bg-indigo-500 hover:bg-indigo-600`} style={getBarStyles(p.startDate, p.endDate)}><div className="px-2 text-xs text-white leading-6 truncate drop-shadow-sm">{p.title}</div></div></div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+              </div>
+            </section>
+          </main>
+        </>
+      )}
+
+      {/* --- 匯入資料 Modal --- */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden">
+            <div className="px-6 py-4 border-b flex justify-between bg-green-50">
+              <h2 className="text-lg font-bold text-green-900 flex items-center gap-2"><UploadCloud className="w-5 h-5" /> 匯入外部資料</h2>
+              <button onClick={() => setIsImportModalOpen(false)}><X className="w-5 h-5 text-gray-500 hover:text-gray-800" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-600 mb-4">系統可讀取 <b className="text-green-600">Excel (.xlsx, .csv)</b> 檔案，或請直接貼上文件文字。<br/>讀取後會自動幫您填入「新增簽呈」的企劃目的欄位中。</p>
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center bg-gray-50 hover:bg-gray-100 transition-colors">
+                <input type="file" accept=".xlsx, .xls, .csv" className="hidden" id="excel-upload" onChange={(e) => setImportFile(e.target.files?.[0] || null)} />
+                <label htmlFor="excel-upload" className="cursor-pointer flex flex-col items-center justify-center">
+                  <FileText className={`w-10 h-10 mb-2 ${importFile ? 'text-green-500' : 'text-gray-400'}`} />
+                  <span className="font-medium text-indigo-600 hover:text-indigo-800">{importFile ? `已選擇檔案：${importFile.name}` : "點擊上傳 Excel 檔案"}</span>
+                </label>
+              </div>
+              <div className="flex items-center gap-4 my-2"><div className="h-px bg-gray-200 flex-1"></div><span className="text-xs text-gray-400 font-bold">或者貼上純文字</span><div className="h-px bg-gray-200 flex-1"></div></div>
+              <textarea className="w-full border rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none h-32" placeholder="請在此貼上您的專案內容文字..." value={importText} onChange={(e) => setImportText(e.target.value)} disabled={importFile !== null}></textarea>
+              {importFile && <p className="text-xs text-orange-500 font-bold">* 已選擇檔案，文字框暫時停用。欲輸入文字請先清除檔案。</p>}
+            </div>
+            <div className="px-6 py-4 bg-gray-50 flex justify-between items-center border-t border-gray-100">
+              <button onClick={() => { setImportFile(null); setImportText(""); }} className="text-gray-500 hover:text-red-500 text-sm font-medium">清除重設</button>
+              <div className="flex gap-2">
+                <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 text-gray-600 bg-white border rounded-lg font-medium text-sm">取消</button>
+                <button onClick={handleProcessImport} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-sm transition-colors">解析並建立簽呈</button>
               </div>
             </div>
           </div>
-        </section>
-      </main>
+        </div>
+      )}
 
       {/* --- 單日詳細資訊彈出視窗 --- */}
       {selectedDayInfo && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden border">
             <div className={`px-4 py-3 border-b flex justify-between items-center ${selectedDayInfo.st.bg} ${selectedDayInfo.st.text}`}>
               <h3 className="font-bold flex items-center gap-2"><CalendarDays className="w-5 h-5" />{selectedDayInfo.date}</h3>
@@ -587,24 +941,307 @@ export default function App() {
             </div>
             <div className="p-5 space-y-4">
               <div><span className={`text-xs px-2 py-1 rounded shadow-sm ${selectedDayInfo.st.tag} font-bold`}>{selectedDayInfo.dailyData.type}</span></div>
-              
-              {/* 顯示國定假日與官方活動 */}
               {selectedDayInfo.dailyData.events?.length > 0 && (
                 <div>
                   <h4 className="text-xs font-bold text-gray-500 mb-1 border-b pb-1">節慶與官方活動</h4>
                   <ul className="space-y-1">
-                    {selectedDayInfo.dailyData.events.map((ev: string, idx: number) => (
-                      <li key={idx} className="text-sm bg-yellow-50 text-yellow-800 border border-yellow-200 px-2 py-1 rounded">{ev}</li>
-                    ))}
+                    {selectedDayInfo.dailyData.events.map((ev: string, idx: number) => (<li key={idx} className="text-sm bg-yellow-50 text-yellow-800 border border-yellow-200 px-2 py-1 rounded">{ev}</li>))}
                   </ul>
                 </div>
+              )}
+              {selectedDayInfo.dailyData.marketingEvents?.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold text-gray-500 mb-1 border-b pb-1">行銷節慶</h4>
+                  <ul className="space-y-1">
+                    {selectedDayInfo.dailyData.marketingEvents.map((ev: string, idx: number) => (<li key={idx} className="text-sm bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded">{ev}</li>))}
+                  </ul>
+                </div>
+              )}
+              {selectedDayInfo.dayProjects?.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold text-gray-500 mb-1 border-b pb-1">館內專案排程</h4>
+                  <ul className="space-y-1">
+                    {selectedDayInfo.dayProjects.map((p: any) => (<li key={p.id} className={`text-sm px-2 py-1 rounded text-white shadow-sm cursor-pointer hover:opacity-80 transition-opacity ${p.status === "scheduled" ? "bg-indigo-500" : "bg-orange-400"}`} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setSelectedDayInfo(null); setIsModalOpen(true); }}>{p.title}</li>))}
+                  </ul>
+                </div>
+              )}
+              {(!selectedDayInfo.dailyData.events?.length) && (!selectedDayInfo.dailyData.marketingEvents?.length) && (!selectedDayInfo.dayProjects?.length) && (
+                 <div className="text-center text-gray-400 text-sm py-4">本日無任何活動或專案排程</div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* 省略部分彈出視窗代碼以符合長度限制，您原本的 Modal 代碼依然可以完美運作 */}
+      {selectedMonthView && <MonthCalendarView month={selectedMonthView} />}
+
+      {/* --- 匯出 Modal --- */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="px-6 py-4 border-b flex justify-between bg-indigo-50">
+              <h2 className="text-lg font-bold text-indigo-900 flex items-center gap-2"><FileDown className="w-5 h-5" /> 匯出專案清單</h2>
+              <button onClick={() => setIsExportModalOpen(false)}><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6 space-y-4 text-sm">
+              <p className="text-gray-500 mb-2">請選擇匯出範圍：</p>
+              <div><label className="block font-bold mb-1">匯出年度</label><select className="w-full border rounded-lg p-2 outline-none focus:border-indigo-500" value={exportConfig.year} onChange={(e) => setExportConfig({ ...exportConfig, year: Number(e.target.value) })}>{yearOptions.map((y) => (<option key={y} value={y}>{y} 年</option>))}</select></div>
+              <div><label className="block font-bold mb-1">匯出月份</label><select className="w-full border rounded-lg p-2 outline-none focus:border-indigo-500" value={exportConfig.month} onChange={(e) => setExportConfig({ ...exportConfig, month: e.target.value })}><option value="all">全年度</option>{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (<option key={m} value={m}>{m} 月</option>))}</select></div>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 flex justify-between items-center border-t border-gray-100">
+              <button onClick={handleExportListWord} className="flex items-center gap-1 px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-medium text-sm transition-colors border border-blue-200"><FileType2 className="w-4 h-4" /> 下載 Word</button>
+              <button onClick={handleExportSystemPDF} className="flex items-center gap-1 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg font-medium text-sm transition-colors"><Printer className="w-4 h-4" /> 列印 (PDF)</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- 變更密碼 Modal --- */}
+      {isChangePwdModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
+          <form onSubmit={handleChangePassword} className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="px-6 py-4 border-b flex justify-between bg-indigo-50">
+              <h2 className="font-bold text-indigo-900 flex items-center gap-2"><Key className="w-4 h-4" /> 變更密碼</h2>
+              <button type="button" onClick={() => { setIsChangePwdModalOpen(false); setPwdForm({ old: "", new: "", confirm: "" }); }}><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6 space-y-4 text-sm">
+              <div><label className="block mb-1 font-medium">原密碼</label><input type="password" required className="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500" value={pwdForm.old} onChange={(e) => setPwdForm({ ...pwdForm, old: e.target.value })} /></div>
+              <div><label className="block mb-1 font-medium">新密碼</label><input type="password" required className="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500" value={pwdForm.new} onChange={(e) => setPwdForm({ ...pwdForm, new: e.target.value })} /></div>
+              <div><label className="block mb-1 font-medium">確認新密碼</label><input type="password" required className="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500" value={pwdForm.confirm} onChange={(e) => setPwdForm({ ...pwdForm, confirm: e.target.value })} /></div>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 flex justify-end gap-2"><button type="button" onClick={() => { setIsChangePwdModalOpen(false); setPwdForm({ old: "", new: "", confirm: "" }); }} className="px-4 py-2 text-gray-600">取消</button><button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded">確認變更</button></div>
+          </form>
+        </div>
+      )}
+
+      {/* --- 💥 最重要：專案 Modal (檢視 / 編輯 / 新增) 💥 --- */}
+      <style>{`
+        .sign-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; border: 1px solid #d1d5db; }
+        .sign-table th, .sign-table td { border: 1px solid #d1d5db; padding: 0.75rem; text-align: left; vertical-align: top; }
+        .sign-table th { background-color: #f3f4f6; color: #374151; font-weight: 600; }
+        .sign-table .center { text-align: center; }
+        @media print {
+          body * { visibility: hidden; }
+          .print-modal, .print-modal * { visibility: visible; }
+          .print-modal { position: absolute; left: 0; top: 0; width: 100%; border: none !important; box-shadow: none !important; }
+          .no-print { display: none !important; }
+          .sign-table th, .sign-table td { border: 1px solid #000; color: #000; }
+          .sign-table th { background-color: #e5e7eb !important; -webkit-print-color-adjust: exact; }
+          .print-system-only { visibility: visible !important; }
+        }
+      `}</style>
+
+      {isModalOpen && editingProject && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm print:bg-white print:p-0">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl flex flex-col max-h-[95vh] print-modal print:max-h-none print:h-auto overflow-hidden print:overflow-visible relative" id="pdf-export-area">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 no-print">
+              <h2 className="text-xl font-bold text-gray-800">
+                {modalMode === "create" ? "新增簽呈" : modalMode === "edit" ? "編輯簽呈" : "專案簽呈內容"}
+              </h2>
+              <div className="flex items-center gap-2">
+                {modalMode === "view" && (
+                  <>
+                    <button onClick={handleExportSystemPDF} className="flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded"><Printer className="w-4 h-4" /> 列印 PDF</button>
+                    <button onClick={() => exportSingleProjectToWord(editingProject)} className="flex items-center gap-1 text-sm bg-blue-50 text-blue-700 px-3 py-1.5 rounded"><FileType2 className="w-4 h-4" /> 下載 Word</button>
+                  </>
+                )}
+                <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 ml-2"><X className="w-6 h-6" /></button>
+              </div>
+            </div>
+
+            <div className="p-8 overflow-y-auto print:p-4 text-sm print:text-base text-gray-900 bg-white">
+              {modalMode === "view" ? (
+                <div className="max-w-3xl mx-auto">
+                  <WorkflowProgressBar project={editingProject} />
+                  <h1 className="text-2xl font-bold text-center mb-6">行銷公關部 簽呈 Official application</h1>
+                  <table className="sign-table center">
+                    <thead><tr><th className="center w-1/5">簽核</th><th className="center w-1/5">經辦人</th><th className="center w-1/5">部門主管</th><th className="center w-1/5">營運主管</th><th className="center w-1/5">總經理</th></tr></thead>
+                    <tbody><tr><td className="h-16"></td><td></td><td></td><td></td><td></td></tr></tbody>
+                  </table>
+                  <div className="mb-4 font-medium text-gray-700 print:text-black flex justify-between">
+                    <span>Date：{editingProject.applyDate}</span>
+                    <span>Ref No：{editingProject.refNo}</span>
+                  </div>
+                  <table className="sign-table">
+                    <tbody>
+                      <tr><th className="w-32 center">主旨</th><td className="font-bold text-lg">{editingProject.title}</td></tr>
+                      <tr><th className="center">說明</th><td className="whitespace-pre-wrap">{editingProject.purpose}</td></tr>
+                      <tr><th className="center">活動售價</th><td>{editingProject.price}</td></tr>
+                      <tr><th className="center">活動日期</th><td>{editingProject.startDate} ～ {editingProject.endDate}</td></tr>
+                      <tr><th className="center">內容說明</th><td className="whitespace-pre-wrap">{editingProject.content}</td></tr>
+                      <tr><th className="center">注意事項</th><td className="whitespace-pre-wrap">{editingProject.precautions}</td></tr>
+                    </tbody>
+                  </table>
+                  <h3 className="font-bold mb-2 text-lg">內拆表</h3>
+                  <table className="sign-table center">
+                    <thead>
+                      <tr>
+                        <th className="center">售價</th>
+                        {(editingProject.breakdown?.items || []).map((item: any, idx: number) => (<th key={idx} className="center">{item.name}</th>))}
+                        <th className="center">淨價</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="font-medium">{editingProject.breakdown?.price}</td>
+                        {(editingProject.breakdown?.items || []).map((item: any, idx: number) => (<td key={idx}>{item.value}</td>))}
+                        <td className="font-bold text-indigo-700 print:text-black">{editingProject.breakdown?.net}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div className="mt-6 mb-8">
+                    <h3 className="font-bold text-lg text-red-600 mb-2">專案亮點</h3>
+                    <p className="bg-red-50 p-4 rounded border font-medium whitespace-pre-wrap">{editingProject.highlights}</p>
+                  </div>
+                  <div className="mt-8">
+                    <p className="font-bold mb-2 text-lg">擬辦：奉 核後，函知各相關部門後續作業</p>
+                    <table className="sign-table">
+                      <tbody><tr><th className="w-32 center">會簽單位</th><td className="font-medium">{(editingProject.countersign || []).map((c: any) => c.dept).join("、 ") || "無須會簽"}</td></tr></tbody>
+                    </table>
+                  </div>
+
+                  {editingProject.countersign?.length > 0 && (
+                    <div className="mt-8 no-print border border-gray-300 rounded-lg overflow-hidden shadow-sm">
+                      <div className="bg-gray-100 px-4 py-2 font-bold text-gray-800 border-b flex items-center gap-2"><PenTool className="w-4 h-4" /> 會簽意見</div>
+                      <div className="p-4 bg-gray-50 space-y-4">
+                        {editingProject.countersign.map((c: any) => (
+                          <div key={c.dept} className="flex flex-col border-b pb-3 last:border-0 last:pb-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-bold text-gray-900 bg-white px-2 py-0.5 rounded border">{c.dept}</span>
+                              {c.status === "approved" ? (<span className="text-xs text-green-600 font-bold flex items-center gap-1"><CheckCircle className="w-3 h-3" /> 已確認 ({c.time})</span>) : (<span className="text-xs text-orange-600 font-bold">待確認...</span>)}
+                            </div>
+                            {c.status === "approved" ? (
+                              <div className="text-black font-bold whitespace-pre-wrap pl-1 border-l-4 border-gray-400 ml-1 mt-1 p-2 bg-white rounded">{c.comment || "無意見。"}</div>
+                            ) : (
+                              editingProject.status === "countersigning" && currentUser?.dept === c.dept && (
+                                <div className="flex gap-2 mt-2">
+                                  <input type="text" id={`comment-${c.dept}`} className="flex-1 border rounded px-3 py-1.5 text-sm" placeholder="請填寫會簽意見" />
+                                  <button onClick={() => submitDeptComment(c.dept, (document.getElementById(`comment-${c.dept}`) as HTMLInputElement).value)} className="bg-indigo-600 text-white px-4 py-1.5 rounded text-sm font-bold hover:bg-indigo-700">送出確認</button>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {editingProject.status === "unconfirmed" && editingProject.feedback && (
+                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 mt-6 no-print">
+                      <div className="flex gap-2 text-orange-800 font-bold mb-1"><MessageSquare className="w-5 h-5" /> 主管退回意見：</div>
+                      <p className="text-orange-700 font-bold border-l-4 border-orange-400 pl-2 ml-1">{editingProject.feedback}</p>
+                    </div>
+                  )}
+                  {editingProject.status === "revision" && editingProject.feedback && (
+                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 mt-6 no-print">
+                      <div className="flex gap-2 text-orange-800 font-bold mb-1"><MessageSquare className="w-5 h-5" /> 主管退回意見：</div>
+                      <p className="text-orange-700 font-bold border-l-4 border-orange-400 pl-2 ml-1">{editingProject.feedback}</p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3 pt-6 border-t mt-6 no-print justify-end">
+                    {editingProject.status === "revision" && editingProject.creator?.includes(currentUser?.name) && (
+                      <button onClick={submitRevisionToManager} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2">修改完成，送交審核 <ArrowRight className="w-4 h-4" /></button>
+                    )}
+                    {["admin", "gm"].includes(currentUser?.role) && editingProject.status === "unconfirmed" && (
+                      <><button onClick={approveByManager} className="bg-green-600 text-white px-6 py-2 rounded-lg font-bold">核准排程</button>
+                      <button onClick={rejectByManager} className="bg-orange-500 text-white px-6 py-2 rounded-lg font-bold">退回修改</button></>
+                    )}
+                    {(["admin", "gm"].includes(currentUser?.role) || (currentUser?.role === "employee" && editingProject.creator?.includes(currentUser?.name))) && editingProject.status !== "scheduled" && (
+                      <button onClick={() => setModalMode("edit")} className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-6 py-2 rounded-lg font-medium"><Edit className="w-4 h-4" /> 編輯</button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <form id="project-form" onSubmit={handleSave} className="space-y-8 max-w-4xl mx-auto bg-white">
+                  <div className="space-y-4">
+                    <h3 className="font-bold text-lg border-b pb-2 text-indigo-800">一、基本資料</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div><label className="block font-medium mb-1">文檔號</label><input type="text" className="w-full border rounded-lg p-2.5 bg-gray-50" value={editingProject.refNo} onChange={(e) => setEditingProject({ ...editingProject, refNo: e.target.value })} /></div>
+                      <div><label className="block font-medium mb-1">申請日期</label><input type="date" className="w-full border rounded-lg p-2.5 bg-gray-50" value={editingProject.applyDate} onChange={(e) => setEditingProject({ ...editingProject, applyDate: e.target.value })} /></div>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <h3 className="font-bold text-lg border-b pb-2 text-indigo-800">二、活動內容</h3>
+                    <div><label className="block font-medium mb-1">專案名稱</label><input type="text" required className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500" value={editingProject.title} onChange={(e) => setEditingProject({ ...editingProject, title: e.target.value })} /></div>
+                    <div><label className="block font-medium mb-1">企劃目的</label><textarea rows={2} className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500" value={editingProject.purpose} onChange={(e) => setEditingProject({ ...editingProject, purpose: e.target.value })}></textarea></div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div><label className="block font-medium mb-1">活動售價</label><input type="text" className="w-full border rounded-lg p-2.5" placeholder="例: 每房 NT$5,188" value={editingProject.price} onChange={(e) => setEditingProject({ ...editingProject, price: e.target.value })} /></div>
+                      <div><label className="block font-medium mb-1">開始日期</label><input type="date" required className="w-full border rounded-lg p-2.5" value={editingProject.startDate} onChange={(e) => setEditingProject({ ...editingProject, startDate: e.target.value })} /></div>
+                      <div><label className="block font-medium mb-1">結束日期</label><input type="date" required className="w-full border rounded-lg p-2.5" value={editingProject.endDate} onChange={(e) => setEditingProject({ ...editingProject, endDate: e.target.value })} /></div>
+                    </div>
+                    <div><label className="block font-medium mb-1">內容說明</label><textarea rows={4} className="w-full border rounded-lg p-2.5" value={editingProject.content} onChange={(e) => setEditingProject({ ...editingProject, content: e.target.value })}></textarea></div>
+                    <div><label className="block font-medium mb-1">注意事項</label><textarea rows={3} className="w-full border rounded-lg p-2.5" value={editingProject.precautions} onChange={(e) => setEditingProject({ ...editingProject, precautions: e.target.value })}></textarea></div>
+                    <div><label className="block font-medium text-red-600 mb-1">專案亮點</label><textarea rows={2} className="w-full border-red-200 rounded-lg p-2.5 bg-red-50 focus:ring-red-500" value={editingProject.highlights} onChange={(e) => setEditingProject({ ...editingProject, highlights: e.target.value })}></textarea></div>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center border-b pb-2">
+                      <h3 className="font-bold text-lg text-indigo-800">三、財務內拆表</h3>
+                      <button type="button" onClick={handleAddBreakdownItem} className="text-sm flex items-center gap-1 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg"><Plus className="w-4 h-4" /> 自訂項目</button>
+                    </div>
+                    <div className="bg-slate-50 p-3 rounded-lg border">
+                      <label className="block font-bold mb-2">快速勾選：</label>
+                      <div className="flex flex-wrap gap-3">
+                        {PRESET_BREAKDOWN_ITEMS.map((preset) => (
+                          <label key={preset} className="flex items-center gap-2 bg-white border px-3 py-1.5 rounded cursor-pointer">
+                            <input type="checkbox" checked={(editingProject.breakdown?.items || []).some((i: any) => i.name === preset)} onChange={() => handleTogglePreset(preset)} className="w-4 h-4 text-indigo-600" />
+                            <span className="text-sm font-medium">{preset}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto pb-2">
+                      <table className="w-full border-collapse border min-w-[600px] text-sm">
+                        <thead>
+                          <tr className="bg-indigo-50">
+                            <th className="border p-3 w-32 font-bold">總售價</th>
+                            {(editingProject.breakdown?.items || []).map((item: any, idx: number) => (
+                              <th key={idx} className="border p-2 relative group min-w-[120px]">
+                                <input type="text" className="w-full bg-transparent border-b border-indigo-300 focus:border-indigo-600 outline-none text-center font-bold text-indigo-800" value={item.name} onChange={(e) => handleBreakdownItemChange(idx, "name", e.target.value)} placeholder="名稱" />
+                                <button type="button" onClick={() => handleRemoveBreakdownItem(idx)} className="absolute top-1 right-1 bg-red-100 text-red-600 rounded-full p-1 opacity-0 group-hover:opacity-100"><Trash2 className="w-3 h-3" /></button>
+                              </th>
+                            ))}
+                            <th className="border p-3 text-indigo-700 w-32 font-bold">客房淨價</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="border p-2"><input type="text" className="w-full border rounded p-2 text-center" placeholder="總金額" value={editingProject.breakdown?.price || ""} onChange={(e) => handleBreakdownPriceChange(e.target.value)} /></td>
+                            {(editingProject.breakdown?.items || []).map((item: any, idx: number) => (
+                              <td key={idx} className="border p-2"><input type="text" className="w-full border rounded p-2 text-center" value={item.value} onChange={(e) => handleBreakdownItemChange(idx, "value", e.target.value)} placeholder="金額或算式" /></td>
+                            ))}
+                            <td className="border p-2 bg-indigo-50/50"><div className="w-full border-2 border-indigo-400 bg-white font-bold text-indigo-800 rounded p-2 text-center min-h-[36px] flex items-center justify-center">{editingProject.breakdown?.net || "0"}</div></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <h3 className="font-bold text-lg border-b pb-2 text-indigo-800">四、會簽與設定</h3>
+                    <div>
+                      <label className="block font-medium mb-2">需會簽之部門</label>
+                      <div className="flex flex-wrap gap-3">
+                        {DEPARTMENTS.map((dept) => (
+                          <label key={dept} className="flex items-center gap-2 bg-gray-50 border px-3 py-2 rounded-lg cursor-pointer">
+                            <input type="checkbox" checked={(editingProject.countersign || []).some((c: any) => c.dept === dept)} onChange={() => handleToggleDept(dept)} className="w-4 h-4 text-indigo-600" />
+                            <span className="text-sm font-medium">{dept}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </form>
+              )}
+            </div>
+            {modalMode !== "view" && (
+              <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3 no-print">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2 text-gray-600 bg-white border rounded-lg font-medium">取消</button>
+                <button type="submit" form="project-form" className="bg-indigo-600 text-white px-8 py-2 rounded-lg font-medium">儲存</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
