@@ -25,22 +25,13 @@ const OFFICIAL_EVENTS = [
   { date: "12-31", name: "日月潭跨年晚會煙火秀" },
 ];
 
-const PUBLIC_HOLIDAYS = [
-  { date: "01-01", name: "元旦" }, { date: "02-16", name: "除夕" },
-  { date: "02-17", name: "春節 (初一)" }, { date: "02-18", name: "春節 (初二)" },
-  { date: "02-19", name: "春節 (初三)" }, { date: "02-20", name: "春節 (初四)" },
-  { date: "02-28", name: "和平紀念日" }, { date: "04-04", name: "兒童節" },
-  { date: "04-05", name: "清明節" }, { date: "06-19", name: "端午節" },
-  { date: "09-25", name: "中秋節" }, { date: "10-10", name: "國慶日" },
-];
-
-const PRESET_BREAKDOWN_ITEMS = ["早餐", "午餐", "下午茶", "晚餐", "宵夜", "DIY"];
-
 const MARKETING_EVENTS = [
   { date: "02-14", name: "西洋情人節" }, { date: "05-10", name: "母親節檔期" },
   { date: "08-08", name: "父親節" }, { date: "10-31", name: "萬聖節" },
   { date: "12-25", name: "聖誕節" },
 ];
+
+const PRESET_BREAKDOWN_ITEMS = ["早餐", "午餐", "下午茶", "晚餐", "宵夜", "DIY"];
 
 const DEPARTMENTS = ["客務部", "訂房組", "餐飲部", "休閒部", "業務部", "企劃部", "人資", "資訊", "總務", "採購", "財務部"];
 
@@ -51,6 +42,7 @@ const ROLES_INFO: any = {
   admin: { name: "系統管理員", color: "text-purple-700", bg: "bg-purple-100" },
 };
 
+// 🌟 核心：依據年份嚴格隔離的假日資料庫
 const YEARLY_DATA: any = {
   2026: {
     bigHolidays: ["02-14", "02-15", "02-16", "02-17", "02-18", "02-19", "02-20"],
@@ -351,40 +343,73 @@ export default function App() {
   const yearProjects = useMemo(() => projects.filter((p) => p.startDate.startsWith(String(selectedYear)) || p.endDate.startsWith(String(selectedYear))), [projects, selectedYear]);
   const scheduledProjects = useMemo(() => yearProjects.filter((p) => p.status === "scheduled"), [yearProjects]);
   
+  // 🌟 甘特圖智慧排序：時間優先，年度專案沈底
   const filteredScheduledProjects = useMemo(() => {
-    return scheduledProjects.filter((p) => {
-      let passDept = ganttDeptFilter === "all" || (p.creator && p.creator.includes(ganttDeptFilter));
-      let passMonth = true;
-      if (ganttMonthFilter !== "all") {
-        const filterStart = new Date(selectedYear, parseInt(ganttMonthFilter) - 1, 1);
-        const filterEnd = new Date(selectedYear, parseInt(ganttMonthFilter), 0);
-        passMonth = new Date(p.startDate) <= filterEnd && new Date(p.endDate) >= filterStart;
-      }
-      return passDept && passMonth;
-    });
+    return scheduledProjects
+      .filter((p) => {
+        let passDept = ganttDeptFilter === "all" || (p.creator && p.creator.includes(ganttDeptFilter));
+        let passMonth = true;
+        if (ganttMonthFilter !== "all") {
+          const filterStart = new Date(selectedYear, parseInt(ganttMonthFilter) - 1, 1);
+          const filterEnd = new Date(selectedYear, parseInt(ganttMonthFilter), 0);
+          passMonth = new Date(p.startDate) <= filterEnd && new Date(p.endDate) >= filterStart;
+        }
+        return passDept && passMonth;
+      })
+      .sort((a, b) => {
+        const isFullYear = (startDate: string, endDate: string) => {
+          const start = new Date(startDate);
+          const end = new Date(endDate);
+          const diffTime = Math.abs(end.getTime() - start.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          return diffDays >= 360 || (startDate.endsWith("-01-01") && endDate.endsWith("-12-31"));
+        };
+        const isFullA = isFullYear(a.startDate, a.endDate);
+        const isFullB = isFullYear(b.startDate, b.endDate);
+
+        if (isFullA && !isFullB) return 1;
+        if (!isFullA && isFullB) return -1;
+        return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+      });
   }, [scheduledProjects, ganttDeptFilter, ganttMonthFilter, selectedYear]);
 
+  // 🌟 主控板專案區也套用智慧排序
   const dashboardActiveProjects = useMemo(() => {
-    return scheduledProjects.filter((p) => {
-      let passDept = dashboardDeptFilter === "all" || (p.creator && p.creator.includes(dashboardDeptFilter)) || (p.countersign && p.countersign.some((c: any) => c.dept === dashboardDeptFilter));
-      let passMonth = true;
-      if (dashboardMonthFilter !== "all") {
-        const filterStart = new Date(selectedYear, parseInt(dashboardMonthFilter) - 1, 1);
-        const filterEnd = new Date(selectedYear, parseInt(dashboardMonthFilter), 0);
-        passMonth = new Date(p.startDate) <= filterEnd && new Date(p.endDate) >= filterStart;
-      }
-      return passDept && passMonth;
-    });
+    return scheduledProjects
+      .filter((p) => {
+        let passDept = dashboardDeptFilter === "all" || (p.creator && p.creator.includes(dashboardDeptFilter)) || (p.countersign && p.countersign.some((c: any) => c.dept === dashboardDeptFilter));
+        let passMonth = true;
+        if (dashboardMonthFilter !== "all") {
+          const filterStart = new Date(selectedYear, parseInt(dashboardMonthFilter) - 1, 1);
+          const filterEnd = new Date(selectedYear, parseInt(dashboardMonthFilter), 0);
+          passMonth = new Date(p.startDate) <= filterEnd && new Date(p.endDate) >= filterStart;
+        }
+        return passDept && passMonth;
+      })
+      .sort((a, b) => {
+        const isFullYear = (startDate: string, endDate: string) => {
+          const start = new Date(startDate);
+          const end = new Date(endDate);
+          const diffTime = Math.abs(end.getTime() - start.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          return diffDays >= 360 || (startDate.endsWith("-01-01") && endDate.endsWith("-12-31"));
+        };
+        const isFullA = isFullYear(a.startDate, a.endDate);
+        const isFullB = isFullYear(b.startDate, b.endDate);
+
+        if (isFullA && !isFullB) return 1;
+        if (!isFullA && isFullB) return -1;
+        return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+      });
   }, [scheduledProjects, dashboardDeptFilter, dashboardMonthFilter, selectedYear]);
 
-  // 🌟 解除 Admin 追蹤盲區，讓所有帳號都能看到「自己的會辦」與「自己的提案」
   const myPendingCountersign = useMemo(() => {
-    if (!currentUser) return [];
+    if (!currentUser || ["admin", "gm"].includes(currentUser.role)) return [];
     return yearProjects.filter((p) => p.status === "countersigning" && p.countersign && p.countersign.some((c: any) => c.dept === currentUser.dept && c.status === "pending"));
   }, [yearProjects, currentUser]);
   
   const myOwnProposals = useMemo(() => {
-    if (!currentUser) return [];
+    if (!currentUser || ["admin", "gm"].includes(currentUser.role)) return [];
     return yearProjects.filter((p) => p.creator && p.creator.includes(currentUser.name) && ["countersigning", "revision", "unconfirmed"].includes(p.status));
   }, [yearProjects, currentUser]);
   
@@ -417,7 +442,7 @@ export default function App() {
       else { localStorage.removeItem("mpr_account"); localStorage.removeItem("mpr_password"); localStorage.setItem("mpr_remember", "false"); }
       setCurrentUser(user); setView("app");
     } else { 
-      alert("登入失敗：帳號或密碼錯誤！"); 
+      alert("登入失敗：帳號或密碼錯誤！(請先確認資料庫連線或資料庫內有無使用者)"); 
     }
   };
   const handleGuestLogin = () => { setCurrentUser({ id: "guest", name: "訪客", role: "guest", dept: "" }); setView("app"); };
@@ -832,7 +857,6 @@ export default function App() {
           </header>
 
           <main className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-            {/* 🌟 儀表板：讓所有人都看得到「待我會辦」與「我的提案」，Admin 可另外看到「待審核簽呈」 */}
             {currentUser && currentUser.role !== "guest" && (
               <section className="mb-8">
                 <div className="flex items-center justify-between mb-4"><h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">👋 歡迎回來，{currentUser.name} <span className="text-sm text-gray-500 font-medium ml-2">({currentUser.dept} 專屬主控板)</span></h2></div>
@@ -1154,7 +1178,6 @@ export default function App() {
                     </table>
                   </div>
 
-                  {/* 🌟 會簽意見與管理員代簽按鈕 */}
                   {editingProject.countersign?.length > 0 && (
                     <div className="mt-8 no-print border border-gray-300 rounded-lg overflow-hidden shadow-sm">
                       <div className="bg-gray-100 px-4 py-2 font-bold text-gray-800 border-b flex items-center gap-2"><PenTool className="w-4 h-4" /> 會簽意見</div>
