@@ -73,7 +73,8 @@
     "wouter": "^3.3.5",
     "zod": "latest"
   },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.103.0"
+ "dependencies": {
+    "@supabase/supabase-js": "^2.103.0",
+    "xlsx": "latest"
   }
 }
