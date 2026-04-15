@@ -16,31 +16,7 @@ const SUPABASE_URL = "https://mksmrupvgkehvfadynee.supabase.co";
 const SUPABASE_KEY = "sb_publishable_0WCOlZOefS12mmupLA5YFg_fPv_8Xn8";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const OFFICIAL_EVENTS = [
-  { date: "04-03", name: "日月潭星光螢火季 (起跑)" },
-  { date: "09-12", name: "花火音樂嘉年華 (開幕)" },
-  { date: "09-20", name: "日月潭國際萬人泳渡" },
-  { date: "10-03", name: "環法自行車挑戰賽" },
-  { date: "10-10", name: "國慶花火音樂會" },
-  { date: "12-31", name: "日月潭跨年晚會煙火秀" },
-];
-
-const PUBLIC_HOLIDAYS = [
-  { date: "01-01", name: "元旦" }, { date: "02-16", name: "除夕" },
-  { date: "02-17", name: "春節 (初一)" }, { date: "02-18", name: "春節 (初二)" },
-  { date: "02-19", name: "春節 (初三)" }, { date: "02-20", name: "春節 (初四)" },
-  { date: "02-28", name: "和平紀念日" }, { date: "04-04", name: "兒童節" },
-  { date: "04-05", name: "清明節" }, { date: "06-19", name: "端午節" },
-  { date: "09-25", name: "中秋節" }, { date: "10-10", name: "國慶日" },
-];
-
 const PRESET_BREAKDOWN_ITEMS = ["早餐", "午餐", "下午茶", "晚餐", "宵夜", "DIY"];
-
-const MARKETING_EVENTS = [
-  { date: "02-14", name: "西洋情人節" }, { date: "05-10", name: "母親節檔期" },
-  { date: "08-08", name: "父親節" }, { date: "10-31", name: "萬聖節" },
-  { date: "12-25", name: "聖誕節" },
-];
 
 const ROLES_INFO: any = {
   guest: { name: "訪客 (僅觀看)", color: "text-gray-500", bg: "bg-gray-100" },
@@ -51,6 +27,7 @@ const ROLES_INFO: any = {
 
 const DEPARTMENTS = ["客務部", "訂房組", "餐飲部", "休閒部", "業務部", "企劃部", "人資", "資訊", "總務", "採購", "財務部"];
 
+// 🌟 日曆生成邏輯 (優先讀取 Supabase 資料庫)
 const generateCalendar = (year: number, customEvents: any[]) => {
   const data: any = {};
   for (let m = 1; m <= 12; m++) {
@@ -59,39 +36,29 @@ const generateCalendar = (year: number, customEvents: any[]) => {
       const dateStr = `${year}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       const dateObj = new Date(dateStr);
       const day = dateObj.getDay();
-      const md = `${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       
-      let type = "平日";
+      // 預設平假日判斷
+      let type = (day === 6 || day === 0) ? "假日" : "平日";
       let events = [];
       let marketingEvents = [];
-      
-      const pubHoliday = PUBLIC_HOLIDAYS.find((e) => e.date === md);
-      if (pubHoliday) events.push(`🧨 ${pubHoliday.name}`);
 
-      const officialEvent = OFFICIAL_EVENTS.find((e) => e.date === md);
-      if (officialEvent) events.push(`✨ ${officialEvent.name}`);
-      
-      const mktEvent = MARKETING_EVENTS.find((e) => e.date === md);
-      if (mktEvent) marketingEvents.push(`🎯 ${mktEvent.name}`);
-
-      let bigHolidays: string[] = [];
-      let holidays: string[] = [];
-      if (year === 2026) {
-        bigHolidays = ["02-14", "02-15", "02-16", "02-17", "02-18", "02-19", "02-20"];
-        holidays = ["01-01", "01-02", "02-27", "02-28", "04-03", "04-04", "04-05", "05-01", "06-19", "06-20", "06-21", "09-25", "09-26", "09-27", "10-09", "10-10"];
-      }
+      // 寒暑假預設旺日邏輯
       const isWinterVacation = (m === 1 && d >= 21) || (m === 2 && d <= 13);
       const isSummerVacation = m === 7 || m === 8;
-      
-      if (bigHolidays.includes(md) || md === "09-20") type = "大假日";
-      else if (holidays.includes(md) || day === 6 || day === 0) type = "假日";
-      else if (day === 5 || isWinterVacation || isSummerVacation) type = "旺日";
+      if (type === "平日" && (day === 5 || isWinterVacation || isSummerVacation)) {
+        type = "旺日";
+      }
 
+      // 覆寫為資料庫中的設定 (如大假日、活動名稱)
       const dbMatch = customEvents.find(e => e.date === dateStr);
       if (dbMatch) {
         if (dbMatch.event_type) type = dbMatch.event_type;
-        if (dbMatch.event_name) events.push(`${dbMatch.is_public_holiday ? '🧨' : '✨'} ${dbMatch.event_name}`);
+        if (dbMatch.event_name) {
+          const icon = dbMatch.is_public_holiday ? '🧨' : '🎯';
+          events.push(`${icon} ${dbMatch.event_name}`);
+        }
       }
+      
       data[dateStr] = { type, events, marketingEvents };
     }
   }
@@ -176,6 +143,7 @@ export default function App() {
         setProjects(parsedProjects);
       }
 
+      // 🌟 抓取 Supabase 的行事曆資料
       const { data: calData } = await supabase.from("calendar_events").select("*");
       if (calData) setDbEvents(calData);
 
@@ -193,7 +161,7 @@ export default function App() {
     const existing = dbEvents.find(e => e.date === dateStr);
     const payload = existing
       ? { ...existing, description: newRemark } 
-      : { date: dateStr, event_name: "", event_type: "平日", is_public_holiday: false, description: newRemark }; 
+      : { date: dateStr, event_name: "自訂備註", event_type: "平日", is_public_holiday: false, description: newRemark }; 
 
     const { error } = await supabase.from('calendar_events').upsert(payload, { onConflict: 'date' });
     if (error) {
@@ -241,7 +209,8 @@ export default function App() {
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         extractedContent = XLSX.utils.sheet_to_txt(sheet);
       } catch (error) {
-        alert("讀取 Excel 失敗，請確認檔案格式是否正確。"); return;
+        alert("讀取 Excel 失敗，請確認檔案格式是否正確。");
+        return;
       }
     }
     if (!extractedContent.trim()) { alert("未偵測到任何內容，請手動輸入或選擇檔案。"); return; }
@@ -252,12 +221,28 @@ export default function App() {
     const mm = String(today.getMonth() + 1).padStart(2, "0");
     
     setEditingProject({
-      id: Date.now(), title: "【從匯入自動建立】請修改標題", refNo: `MPR-${twYear}-${mm}-${String(projects.length + 1).padStart(3, "0")}`,
-      applyDate: today.toISOString().split("T")[0], createTime: getCurrentTimeString(),
+      id: Date.now(),
+      title: "【從匯入自動建立】請修改標題",
+      refNo: `MPR-${twYear}-${mm}-${String(projects.length + 1).padStart(3, "0")}`,
+      applyDate: today.toISOString().split("T")[0],
+      createTime: getCurrentTimeString(),
       purpose: "以下為系統匯入之原始資料，請人工整理：\n\n" + extractedContent,
-      price: "", startDate: `${selectedYear}-01-01`, endDate: `${selectedYear}-01-31`, content: "", precautions: "", highlights: "", breakdown: { price: "", net: "", items: [] }, countersign: [], status: "countersigning", feedback: "", creator: `${currentUser?.dept || ""} - ${currentUser?.name || ""}`,
+      price: "",
+      startDate: `${selectedYear}-01-01`,
+      endDate: `${selectedYear}-01-31`,
+      content: "",
+      precautions: "",
+      highlights: "",
+      breakdown: { price: "", net: "", items: [] },
+      countersign: [],
+      status: "countersigning",
+      feedback: "",
+      creator: `${currentUser?.dept || ""} - ${currentUser?.name || ""}`,
     });
-    setModalMode("create"); setIsModalOpen(true); setImportText(""); setImportFile(null);
+    setModalMode("create");
+    setIsModalOpen(true);
+    setImportText("");
+    setImportFile(null);
   };
 
   useEffect(() => {
@@ -275,9 +260,11 @@ export default function App() {
       if (!isNaN(start) && start < minYear) minYear = start;
       if (!isNaN(end) && end > maxYear) maxYear = end;
     });
-    const options = []; for (let i = minYear; i <= maxYear; i++) options.push(i); return options;
+    const options = []; for (let i = minYear; i <= maxYear; i++) options.push(i);
+    return options;
   }, [projects, currentYear]);
 
+  // 將 dbEvents 作為生成月曆的依賴
   const calendarData = useMemo(() => generateCalendar(selectedYear, dbEvents), [selectedYear, dbEvents]);
   const [selectedMonthView, setSelectedMonthView] = useState<number | null>(null);
   const [selectedDayInfo, setSelectedDayInfo] = useState<any>(null);
@@ -324,21 +311,29 @@ export default function App() {
   }, [yearProjects, currentUser]);
 
   const getBarStyles = (startDate: string, endDate: string) => {
-    const yearStart = new Date(`${selectedYear}-01-01`).getTime(); const yearEnd = new Date(`${selectedYear}-12-31`).getTime();
-    const totalYearTime = yearEnd - yearStart; const start = new Date(startDate).getTime(); const end = new Date(endDate).getTime();
-    const validStart = Math.max(yearStart, start); const validEnd = Math.min(yearEnd, end);
-    let left = ((validStart - yearStart) / totalYearTime) * 100; let width = ((validEnd - validStart) / totalYearTime) * 100;
-    if (width < 1) width = 1; return { left: `${left}%`, width: `${width}%` };
+    const yearStart = new Date(`${selectedYear}-01-01`).getTime();
+    const yearEnd = new Date(`${selectedYear}-12-31`).getTime();
+    const totalYearTime = yearEnd - yearStart;
+    const start = new Date(startDate).getTime();
+    const end = new Date(endDate).getTime();
+    const validStart = Math.max(yearStart, start);
+    const validEnd = Math.min(yearEnd, end);
+    let left = ((validStart - yearStart) / totalYearTime) * 100;
+    let width = ((validEnd - validStart) / totalYearTime) * 100;
+    if (width < 1) width = 1;
+    return { left: `${left}%`, width: `${width}%` };
   };
 
   const handleLoginSubmit = (e: any) => {
-    e.preventDefault(); const formData = new FormData(e.target); const acc = formData.get("account"); const pass = formData.get("password");
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const acc = formData.get("account"); const pass = formData.get("password");
     const user = users.find((u) => u.account === acc && u.password === pass);
     if (user) {
       if (rememberMe) { localStorage.setItem("mpr_account", acc as string); localStorage.setItem("mpr_password", pass as string); localStorage.setItem("mpr_remember", "true"); } 
       else { localStorage.removeItem("mpr_account"); localStorage.removeItem("mpr_password"); localStorage.setItem("mpr_remember", "false"); }
       setCurrentUser(user); setView("app");
-    } else { alert("登入失敗：帳號或密碼錯誤！"); }
+    } else { alert("登入失敗：帳號或密碼錯誤！(請先確認您的 Supabase Table 是否有資料)"); }
   };
   const handleGuestLogin = () => { setCurrentUser({ id: "guest", name: "訪客", role: "guest", dept: "" }); setView("app"); };
   const handleLogout = () => { setCurrentUser(null); setView("login"); };
@@ -353,15 +348,20 @@ export default function App() {
   };
 
   const handleSave = async (e: any) => { 
-    e.preventDefault(); let updatedProj = { ...editingProject }; 
+    e.preventDefault(); 
+    let updatedProj = { ...editingProject }; 
     if (modalMode === "create" && updatedProj.countersign.length === 0) updatedProj.status = "revision"; 
-    await saveProjectToDb(updatedProj); setIsModalOpen(false); 
+    await saveProjectToDb(updatedProj); 
+    setIsModalOpen(false); 
   };
 
   const handleToggleDept = (dept: string) => {
     const current = editingProject.countersign || [];
-    if (current.some((c: any) => c.dept === dept)) setEditingProject({ ...editingProject, countersign: current.filter((c: any) => c.dept !== dept) });
-    else setEditingProject({ ...editingProject, countersign: [...current, { dept, status: "pending", comment: "", time: "" }] });
+    if (current.some((c: any) => c.dept === dept)) {
+      setEditingProject({ ...editingProject, countersign: current.filter((c: any) => c.dept !== dept) });
+    } else {
+      setEditingProject({ ...editingProject, countersign: [...current, { dept, status: "pending", comment: "", time: "" }] });
+    }
   };
 
   const submitDeptComment = async (deptName: string, comment: string) => {
@@ -380,18 +380,53 @@ export default function App() {
   const rejectByManager = async () => { const updatedProj = { ...editingProject, status: "revision" }; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
 
   const calculateNetPrice = (currentBreakdown: any) => {
-    const totalPrice = parseFloat((currentBreakdown.price || "0").replace(/,/g, "")) || 0;
-    let totalDeductions = 0; (currentBreakdown.items || []).forEach((item: any) => { totalDeductions += evaluateExpression(item.value); });
-    return new Intl.NumberFormat("en-US").format(totalPrice - totalDeductions);
+    const totalPriceStr = currentBreakdown.price || "0";
+    const totalPrice = parseFloat(totalPriceStr.replace(/,/g, "")) || 0;
+    let totalDeductions = 0;
+    (currentBreakdown.items || []).forEach((item: any) => { totalDeductions += evaluateExpression(item.value); });
+    const netPrice = totalPrice - totalDeductions;
+    return new Intl.NumberFormat("en-US").format(netPrice);
   };
 
-  const handleBreakdownPriceChange = (value: string) => { const newBreakdown = { ...editingProject.breakdown, price: value }; newBreakdown.net = calculateNetPrice(newBreakdown); setEditingProject({ ...editingProject, breakdown: newBreakdown }); };
-  const handleTogglePreset = (presetName: string) => { let newItems = [...(editingProject.breakdown?.items || [])]; if (newItems.some((i) => i.name === presetName)) newItems = newItems.filter((i) => i.name !== presetName); else newItems.push({ name: presetName, value: "" }); const newBreakdown = { ...editingProject.breakdown, items: newItems }; newBreakdown.net = calculateNetPrice(newBreakdown); setEditingProject({ ...editingProject, breakdown: newBreakdown }); };
-  const handleAddBreakdownItem = () => { const newBreakdown = { ...editingProject.breakdown, items: [...(editingProject.breakdown.items || []), { name: "新項目", value: "" }] }; newBreakdown.net = calculateNetPrice(newBreakdown); setEditingProject({ ...editingProject, breakdown: newBreakdown }); };
-  const handleRemoveBreakdownItem = (index: number) => { const newItems = [...editingProject.breakdown.items]; newItems.splice(index, 1); const newBreakdown = { ...editingProject.breakdown, items: newItems }; newBreakdown.net = calculateNetPrice(newBreakdown); setEditingProject({ ...editingProject, breakdown: newBreakdown }); };
-  const handleBreakdownItemChange = (index: number, field: string, value: string) => { const newItems = [...editingProject.breakdown.items]; newItems[index][field] = value; const newBreakdown = { ...editingProject.breakdown, items: newItems }; newBreakdown.net = calculateNetPrice(newBreakdown); setEditingProject({ ...editingProject, breakdown: newBreakdown }); };
+  const handleBreakdownPriceChange = (value: string) => {
+    const newBreakdown = { ...editingProject.breakdown, price: value };
+    newBreakdown.net = calculateNetPrice(newBreakdown);
+    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  };
 
-  const handleExportSystemPDF = () => { setIsPrintLayoutActive(true); setIsExportModalOpen(false); setTimeout(() => { window.print(); setIsPrintLayoutActive(false); }, 800); };
+  const handleTogglePreset = (presetName: string) => {
+    let newItems = [...(editingProject.breakdown?.items || [])];
+    if (newItems.some((i) => i.name === presetName)) newItems = newItems.filter((i) => i.name !== presetName);
+    else newItems.push({ name: presetName, value: "" });
+    const newBreakdown = { ...editingProject.breakdown, items: newItems };
+    newBreakdown.net = calculateNetPrice(newBreakdown);
+    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  };
+
+  const handleAddBreakdownItem = () => {
+    const newBreakdown = { ...editingProject.breakdown, items: [...(editingProject.breakdown.items || []), { name: "新項目", value: "" }] };
+    newBreakdown.net = calculateNetPrice(newBreakdown);
+    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  };
+
+  const handleRemoveBreakdownItem = (index: number) => {
+    const newItems = [...editingProject.breakdown.items]; newItems.splice(index, 1);
+    const newBreakdown = { ...editingProject.breakdown, items: newItems };
+    newBreakdown.net = calculateNetPrice(newBreakdown);
+    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  };
+
+  const handleBreakdownItemChange = (index: number, field: string, value: string) => {
+    const newItems = [...editingProject.breakdown.items]; newItems[index][field] = value;
+    const newBreakdown = { ...editingProject.breakdown, items: newItems };
+    newBreakdown.net = calculateNetPrice(newBreakdown);
+    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  };
+
+  const handleExportSystemPDF = () => {
+    setIsPrintLayoutActive(true); setIsExportModalOpen(false);
+    setTimeout(() => { window.print(); setIsPrintLayoutActive(false); }, 800);
+  };
 
   const exportSingleProjectToWord = (project: any) => {
     const header = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>簽呈匯出</title><style>body{font-family:"Microsoft JhengHei",Arial,sans-serif;}table{border-collapse:collapse;width:100%;margin-bottom:20px;}th,td{border:1px solid black;padding:8px;text-align:left;vertical-align:top;}.center{text-align:center;}.no-border{border:none;}.no-border td{border:none;padding:4px 0;} .comments { color: black; font-weight: bold; background-color: #f9fafb; padding: 10px; border: 1px solid #ccc; }</style></head><body>`;
@@ -408,14 +443,20 @@ export default function App() {
     let exportList = projects.filter((p) => {
       const startY = parseInt(p.startDate.split("-")[0]); const endY = parseInt(p.endDate.split("-")[0]);
       if (startY > exportConfig.year || endY < exportConfig.year) return false;
-      if (exportConfig.month !== "all") { const startM = parseInt(p.startDate.split("-")[1]); const endM = parseInt(p.endDate.split("-")[1]); const targetM = parseInt(exportConfig.month); return targetM >= startM && targetM <= endM; }
+      if (exportConfig.month !== "all") {
+        const startM = parseInt(p.startDate.split("-")[1]); const endM = parseInt(p.endDate.split("-")[1]); const targetM = parseInt(exportConfig.month);
+        return targetM >= startM && targetM <= endM;
+      }
       return true;
     });
     const header = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>專案清單匯出</title><style>body{font-family:"Microsoft JhengHei",Arial,sans-serif;}table{border-collapse:collapse;width:100%;margin-bottom:20px;}th,td{border:1px solid black;padding:8px;text-align:left;vertical-align:top;}th{background-color:#f2f2f2;}</style></head><body>`;
     const titleText = `${exportConfig.year} 年度 ${exportConfig.month === "all" ? "全年" : exportConfig.month + "月"} 專案清單`;
     let htmlContent = `<h2>${titleText}</h2><table><tr><th>專案名稱</th><th>活動日期</th><th>專案狀態</th><th>提案人</th></tr>`;
-    if (exportList.length === 0) htmlContent += `<tr><td colspan="4">該區間尚無任何專案。</td></tr>`; else exportList.forEach((p) => { htmlContent += `<tr><td>${p.title}</td><td>${p.startDate} ~ ${p.endDate}</td><td>${p.status}</td><td>${p.creator}</td></tr>`; }); htmlContent += `</table>`;
-    const blob = new Blob(["\ufeff", header + htmlContent + "</body></html>"], { type: "application/msword" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `${titleText}.doc`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); setIsExportModalOpen(false);
+    if (exportList.length === 0) htmlContent += `<tr><td colspan="4">該區間尚無任何專案。</td></tr>`;
+    else exportList.forEach((p) => { htmlContent += `<tr><td>${p.title}</td><td>${p.startDate} ~ ${p.endDate}</td><td>${p.status}</td><td>${p.creator}</td></tr>`; });
+    htmlContent += `</table>`;
+    const blob = new Blob(["\ufeff", header + htmlContent + "</body></html>"], { type: "application/msword" });
+    const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `${titleText}.doc`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); setIsExportModalOpen(false);
   };
 
   const WorkflowProgressBar = ({ project }: any) => {
@@ -441,7 +482,9 @@ export default function App() {
         <div className="absolute top-4 left-[10%] h-1.5 bg-indigo-500 -z-10 transition-all duration-500 rounded" style={{ width: `${(steps.filter((s) => s.done).length / (steps.length - 1)) * 80}%` }}></div>
         {steps.map((step, idx) => (
           <div key={step.id} className="flex flex-col items-center flex-1 z-10 relative group">
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shadow-md transition-all duration-300 ${step.done ? "bg-indigo-600 text-white" : step.active ? "bg-orange-500 text-white ring-4 ring-orange-100 scale-110" : "bg-gray-100 text-gray-400 border border-gray-300"}`}>{step.done ? <Check className="w-5 h-5" /> : idx + 1}</div>
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shadow-md transition-all duration-300 ${step.done ? "bg-indigo-600 text-white" : step.active ? "bg-orange-500 text-white ring-4 ring-orange-100 scale-110" : "bg-gray-100 text-gray-400 border border-gray-300"}`}>
+              {step.done ? <Check className="w-5 h-5" /> : idx + 1}
+            </div>
             <div className={`mt-3 text-xs font-bold text-center ${step.done || step.active ? "text-gray-800" : "text-gray-400"}`}>{step.label}</div>
             <div className={`text-[10px] mt-1 whitespace-pre-wrap text-center ${step.done || step.active ? "text-indigo-600 font-medium" : "text-gray-400"}`}>{step.desc}</div>
           </div>
@@ -455,6 +498,7 @@ export default function App() {
     const firstDay = new Date(selectedYear, month - 1, 1).getDay();
     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
     const blanks = Array.from({ length: firstDay }, (_, i) => i);
+
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
         <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl overflow-hidden flex flex-col max-h-[95vh]">
@@ -503,11 +547,17 @@ export default function App() {
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-gray-50 rounded border border-gray-200 px-2 py-1">
             <Filter className="w-3 h-3 text-gray-500 mr-1" />
-            <select className="bg-transparent text-sm outline-none text-gray-700 font-medium cursor-pointer" value={dashboardDeptFilter} onChange={(e) => setDashboardDeptFilter(e.target.value)}><option value="all">全館所有部門</option>{DEPARTMENTS.map((d) => (<option key={d} value={d}>{d}</option>))}</select>
+            <select className="bg-transparent text-sm outline-none text-gray-700 font-medium cursor-pointer" value={dashboardDeptFilter} onChange={(e) => setDashboardDeptFilter(e.target.value)}>
+              <option value="all">全館所有部門</option>
+              {DEPARTMENTS.map((d) => (<option key={d} value={d}>{d}</option>))}
+            </select>
           </div>
           <div className="flex items-center bg-gray-50 rounded border border-gray-200 px-2 py-1">
             <Calendar className="w-3 h-3 text-gray-500 mr-1" />
-            <select className="bg-transparent text-sm outline-none text-gray-700 font-medium cursor-pointer" value={dashboardMonthFilter} onChange={(e) => setDashboardMonthFilter(e.target.value)}><option value="all">全年</option>{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (<option key={m} value={m}>{m}月</option>))}</select>
+            <select className="bg-transparent text-sm outline-none text-gray-700 font-medium cursor-pointer" value={dashboardMonthFilter} onChange={(e) => setDashboardMonthFilter(e.target.value)}>
+              <option value="all">全年</option>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (<option key={m} value={m}>{m}月</option>))}
+            </select>
           </div>
         </div>
       </div>
@@ -516,7 +566,8 @@ export default function App() {
         {dashboardActiveProjects.length === 0 && (<div className="flex flex-col items-center justify-center h-full text-gray-400"><CheckCircle className="w-8 h-8 mb-2 opacity-20" /><p className="text-sm font-medium">該篩選條件下尚無進行中專案</p></div>)}
         {dashboardActiveProjects.map((p) => (
           <div key={p.id} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }} className="text-sm p-3 bg-indigo-50 border border-indigo-100 rounded-lg cursor-pointer hover:bg-indigo-100 flex flex-col sm:flex-row sm:justify-between sm:items-center text-indigo-800 transition-colors shadow-sm gap-2 sm:gap-0">
-            <span className="font-bold truncate">{p.title}</span><span className="text-xs text-indigo-600 shrink-0 bg-white px-2 py-1 rounded border border-indigo-200 font-medium">{p.startDate.substring(5).replace("-", "/")} ~ {p.endDate.substring(5).replace("-", "/")}</span>
+            <span className="font-bold truncate">{p.title}</span>
+            <span className="text-xs text-indigo-600 shrink-0 bg-white px-2 py-1 rounded border border-indigo-200 font-medium">{p.startDate.substring(5).replace("-", "/")} ~ {p.endDate.substring(5).replace("-", "/")}</span>
           </div>
         ))}
       </div>
@@ -536,7 +587,10 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-          <div className="bg-indigo-600 p-8 text-center text-white"><Layout className="w-12 h-12 mx-auto mb-4 opacity-90" /><h1 className="text-2xl font-bold tracking-wide">專案管理系統</h1></div>
+          <div className="bg-indigo-600 p-8 text-center text-white">
+            <Layout className="w-12 h-12 mx-auto mb-4 opacity-90" />
+            <h1 className="text-2xl font-bold tracking-wide">專案管理系統</h1>
+          </div>
           <div className="p-8">
             <form onSubmit={handleLoginSubmit} className="space-y-5">
               <div><label className="block text-sm font-medium mb-1">登入帳號</label><div className="relative"><UserCircle className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" /><input name="account" type="text" required defaultValue={savedAccount} className="w-full pl-10 p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" /></div></div>
@@ -572,7 +626,11 @@ export default function App() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[600px]">
-                <thead><tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-sm"><th className="p-4">姓名</th><th className="p-4">所屬部門</th><th className="p-4">登入帳號</th><th className="p-4">登入密碼</th><th className="p-4">系統權限</th><th className="p-4 text-center">操作</th></tr></thead>
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-sm">
+                    <th className="p-4">姓名</th><th className="p-4">所屬部門</th><th className="p-4">登入帳號</th><th className="p-4">登入密碼</th><th className="p-4">系統權限</th><th className="p-4 text-center">操作</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {users.map((u) => (
                     <tr key={u.id} className="border-b border-gray-100 hover:bg-gray-50">
@@ -591,6 +649,7 @@ export default function App() {
             </div>
           </div>
         </main>
+
         {isUserModalOpen && editingUser && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
             <form onSubmit={handleSaveUser} className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden">
@@ -743,7 +802,7 @@ export default function App() {
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-white border border-gray-300"></span>平日</span>
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-100 border border-blue-300"></span>旺日</span>
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-pink-100 border border-pink-300"></span>假日</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100 border border-red-300"></span>大假日 (如除夕、春節、跨年)</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100 border border-red-300"></span>大假日 (如除夕、春節、連假)</span>
             </div>
 
             {/* 甘特圖區塊 */}
@@ -829,7 +888,7 @@ export default function App() {
               
               {selectedDayInfo.dailyData.events?.length > 0 && (
                 <div>
-                  <h4 className="text-xs font-bold text-gray-500 mb-1 border-b pb-1">節慶與官方活動</h4>
+                  <h4 className="text-xs font-bold text-gray-500 mb-1 border-b pb-1">節慶與活動</h4>
                   <ul className="space-y-1">
                     {selectedDayInfo.dailyData.events.map((ev: string, idx: number) => (<li key={idx} className="text-sm bg-yellow-50 text-yellow-800 border border-yellow-200 px-2 py-1 rounded">{ev}</li>))}
                   </ul>
@@ -856,6 +915,7 @@ export default function App() {
                  <div className="text-center text-gray-400 text-sm py-2">本日無任何活動或專案排程</div>
               )}
 
+              {/* 日程特殊備註與權限管理 */}
               <div className="mt-4 pt-4 border-t border-gray-200">
                 <h4 className="text-sm font-bold text-indigo-800 flex items-center gap-1 mb-2">
                   <MessageSquare className="w-4 h-4" /> 日程特殊備註
