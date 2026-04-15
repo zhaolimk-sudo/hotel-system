@@ -45,7 +45,7 @@ const SUPABASE_URL = "https://mksmrupvgkehvfadynee.supabase.co";
 const SUPABASE_KEY = "sb_publishable_0WCOlZOefS12mmupLA5YFg_fPv_8Xn8";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// --- 官方重點活動列表 ---
+// --- 官方重點活動列表 (預設) ---
 const OFFICIAL_EVENTS = [
   { date: "04-03", name: "日月潭星光螢火季 (起跑)" },
   { date: "09-12", name: "花火音樂嘉年華 (開幕)" },
@@ -89,7 +89,8 @@ const ROLES_INFO: any = {
 
 const DEPARTMENTS = ["客務部", "訂房組", "餐飲部", "休閒部", "業務部", "企劃部", "人資", "資訊", "總務", "採購", "財務部"];
 
-const generateCalendar = (year: number) => {
+// 🌟 修改：加入 customEvents (從資料庫抓取的行事曆) 進行動態判斷
+const generateCalendar = (year: number, customEvents: any[]) => {
   const data: any = {};
   for (let m = 1; m <= 12; m++) {
     const daysInMonth = new Date(year, m, 0).getDate();
@@ -98,10 +99,12 @@ const generateCalendar = (year: number) => {
       const dateObj = new Date(dateStr);
       const day = dateObj.getDay();
       const md = `${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      
       let type = "平日";
       let events = [];
       let marketingEvents = [];
       
+      // 1. 預設系統內建的判斷邏輯
       const pubHoliday = PUBLIC_HOLIDAYS.find((e) => e.date === md);
       if (pubHoliday) events.push(`🧨 ${pubHoliday.name}`);
 
@@ -128,6 +131,18 @@ const generateCalendar = (year: number) => {
       } else if (day === 5 || isWinterVacation || isSummerVacation) {
         type = "旺日";
       }
+
+      // 2. 🌟 優先使用 Supabase 資料庫的設定 (會覆蓋或疊加預設值)
+      const dbMatch = customEvents.find(e => e.date === dateStr);
+      if (dbMatch) {
+        if (dbMatch.event_type) {
+          type = dbMatch.event_type; // 更新為資料庫設定的類型
+        }
+        if (dbMatch.event_name) {
+          events.push(`${dbMatch.is_public_holiday ? '🧨' : '✨'} ${dbMatch.event_name}`);
+        }
+      }
+
       data[dateStr] = { type, events, marketingEvents };
     }
   }
@@ -161,6 +176,7 @@ export default function App() {
 
   const [users, setUsers] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
+  const [dbEvents, setDbEvents] = useState<any[]>([]); // 🌟 新增：存放資料庫的行事曆
   const [isLoading, setIsLoading] = useState(true);
 
   const currentYear = new Date().getFullYear();
@@ -214,6 +230,13 @@ export default function App() {
         }));
         setProjects(parsedProjects);
       }
+
+      // 🌟 新增：抓取 Supabase 的 calendar_events
+      const { data: calData } = await supabase.from("calendar_events").select("*");
+      if (calData) {
+        setDbEvents(calData);
+      }
+
     } catch (e) { console.log("Supabase Error", e); }
     setIsLoading(false);
   };
@@ -315,7 +338,8 @@ export default function App() {
     return options;
   }, [projects, currentYear]);
 
-  const calendarData = useMemo(() => generateCalendar(selectedYear), [selectedYear]);
+  // 🌟 將 dbEvents 加入依賴，當資料庫載入完成時重新生成月曆
+  const calendarData = useMemo(() => generateCalendar(selectedYear, dbEvents), [selectedYear, dbEvents]);
   const [selectedMonthView, setSelectedMonthView] = useState<number | null>(null);
   const [selectedDayInfo, setSelectedDayInfo] = useState<any>(null);
 
