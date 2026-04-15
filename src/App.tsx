@@ -237,10 +237,23 @@ export default function App() {
     setIsLoading(false);
   };
 
+  // 🛡️ 升級版：資料庫存檔防禦機制
   const saveProjectToDb = async (proj: any) => {
-    const dbProj = { ...proj, breakdown: JSON.stringify(proj.breakdown), countersign: JSON.stringify(proj.countersign), id: String(proj.id) };
+    const dbProj = { 
+      ...proj, 
+      breakdown: JSON.stringify(proj.breakdown), 
+      countersign: JSON.stringify(proj.countersign), 
+      id: String(proj.id) 
+    };
+    
     const { error } = await supabase.from("projects").upsert(dbProj);
-    if (error) alert("儲存失敗！" + error.message); else fetchData();
+    if (error) {
+      alert(`⚠️ 儲存失敗！\n錯誤原因：${error.message}\n\n請放心，您的簽呈資料還在畫面上沒有遺失！\n您可以先將文字複製備份，或修正問題後再點擊儲存。`);
+      return false; // 回傳失敗訊號，讓畫面知道不能關閉
+    } else {
+      fetchData();
+      return true; // 回傳成功訊號
+    }
   };
 
   const handleSaveDayRemark = async (dateStr: string, newRemark: string) => {
@@ -438,17 +451,26 @@ export default function App() {
     setModalMode("create"); setIsModalOpen(true);
   };
 
+  // 🛡️ 升級版防護：處理專案儲存，只有成功才關閉視窗
   const handleSave = async (e: any) => { 
     e.preventDefault(); 
     let updatedProj = { ...editingProject }; 
     if (modalMode === "create" && updatedProj.countersign.length === 0) updatedProj.status = "revision"; 
-    await saveProjectToDb(updatedProj); setIsModalOpen(false); 
+    
+    // 檢查是否成功
+    const isSuccess = await saveProjectToDb(updatedProj); 
+    if (isSuccess) {
+      setIsModalOpen(false); // 只有資料庫成功寫入，才允許關閉視窗！
+    }
   };
 
   const handleToggleDept = (dept: string) => {
     const current = editingProject.countersign || [];
-    if (current.some((c: any) => c.dept === dept)) setEditingProject({ ...editingProject, countersign: current.filter((c: any) => c.dept !== dept) });
-    else setEditingProject({ ...editingProject, countersign: [...current, { dept, status: "pending", comment: "", time: "" }] });
+    if (current.some((c: any) => c.dept === dept)) {
+      setEditingProject({ ...editingProject, countersign: current.filter((c: any) => c.dept !== dept) });
+    } else {
+      setEditingProject({ ...editingProject, countersign: [...current, { dept, status: "pending", comment: "", time: "" }] });
+    }
   };
 
   const submitDeptComment = async (deptName: string, comment: string) => {
@@ -462,20 +484,30 @@ export default function App() {
     await saveProjectToDb(updatedProj);
   };
 
-  const submitRevisionToManager = async () => { const updatedProj = { ...editingProject, status: "unconfirmed" }; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
-  const approveByManager = async () => { const updatedProj = { ...editingProject, status: "scheduled", feedback: "" }; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
-  const rejectByManager = async () => { const updatedProj = { ...editingProject, status: "revision" }; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
+  const submitRevisionToManager = async () => { 
+    const updatedProj = { ...editingProject, status: "unconfirmed" }; 
+    const isSuccess = await saveProjectToDb(updatedProj); 
+    if (isSuccess) setIsModalOpen(false); 
+  };
+  const approveByManager = async () => { 
+    const updatedProj = { ...editingProject, status: "scheduled", feedback: "" }; 
+    const isSuccess = await saveProjectToDb(updatedProj); 
+    if (isSuccess) setIsModalOpen(false); 
+  };
+  const rejectByManager = async () => { 
+    const updatedProj = { ...editingProject, status: "revision" }; 
+    const isSuccess = await saveProjectToDb(updatedProj); 
+    if (isSuccess) setIsModalOpen(false); 
+  };
 
-  // 🌟 多重專案拆帳邏輯 (已修復輸入與四捨五入)
   const updatePackage = (pIdx: number, field: string, value: any) => {
     const newBd = [...editingProject.breakdown];
     newBd[pIdx][field] = value;
     
-    // 重算淨利 (含四捨五入)
     if (['price', 'ota', 'items'].includes(field)) {
       const price = parseFloat(String(newBd[pIdx].price).replace(/,/g, "")) || 0;
       const ota = parseFloat(String(newBd[pIdx].ota)) || 0;
-      const otaAmount = Math.round(price * (ota / 100)); // 🌟 OTA 抽成四捨五入
+      const otaAmount = Math.round(price * (ota / 100));
       let totalDeductions = 0;
       (newBd[pIdx].items || []).forEach((item: any) => { 
           totalDeductions += evaluateExpression(item.value); 
@@ -502,21 +534,18 @@ export default function App() {
     updatePackage(pIdx, 'items', items);
   };
 
-  // 🌟 修復的函數：新增子專案的自訂扣除項目
   const handleAddPackageItem = (pIdx: number) => {
     let items = [...(editingProject.breakdown[pIdx].items || [])];
     items.push({ name: "新項目", value: "" });
     updatePackage(pIdx, 'items', items);
   };
 
-  // 🌟 修復的函數：移除子專案的自訂扣除項目
   const handleRemovePackageItem = (pIdx: number, iIdx: number) => {
     let items = [...(editingProject.breakdown[pIdx].items || [])];
     items.splice(iIdx, 1);
     updatePackage(pIdx, 'items', items);
   };
 
-  // 🌟 修復的函數：修改子專案的自訂扣除項目內容 (名稱與金額)
   const handlePackageItemChange = (pIdx: number, iIdx: number, field: string, value: string) => {
     let items = [...(editingProject.breakdown[pIdx].items || [])];
     items[iIdx] = { ...items[iIdx], [field]: value };
@@ -532,7 +561,6 @@ export default function App() {
     const header = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>簽呈匯出</title><style>body{font-family:"Microsoft JhengHei",Arial,sans-serif;}table{border-collapse:collapse;width:100%;margin-bottom:20px;}th,td{border:1px solid black;padding:8px;text-align:left;vertical-align:top;}.center{text-align:center;}.no-border{border:none;}.no-border td{border:none;padding:4px 0;} .comments { color: black; font-weight: bold; background-color: #f9fafb; padding: 10px; border: 1px solid #ccc; }</style></head><body>`;
     const formatText = (t: string) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
     
-    // Word 匯出支援多個專案包裹 (含 OTA 四捨五入)
     let breakdownHtml = "";
     (project.breakdown || []).forEach((pkg: any) => {
       const otaText = pkg.ota ? `OTA抽成(${pkg.ota}%)` : "OTA抽成";
