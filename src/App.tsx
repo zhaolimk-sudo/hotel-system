@@ -25,13 +25,22 @@ const OFFICIAL_EVENTS = [
   { date: "12-31", name: "日月潭跨年晚會煙火秀" },
 ];
 
+const PUBLIC_HOLIDAYS = [
+  { date: "01-01", name: "元旦" }, { date: "02-16", name: "除夕" },
+  { date: "02-17", name: "春節 (初一)" }, { date: "02-18", name: "春節 (初二)" },
+  { date: "02-19", name: "春節 (初三)" }, { date: "02-20", name: "春節 (初四)" },
+  { date: "02-28", name: "和平紀念日" }, { date: "04-04", name: "兒童節" },
+  { date: "04-05", name: "清明節" }, { date: "06-19", name: "端午節" },
+  { date: "09-25", name: "中秋節" }, { date: "10-10", name: "國慶日" },
+];
+
+const PRESET_BREAKDOWN_ITEMS = ["早餐", "午餐", "下午茶", "晚餐", "宵夜", "DIY"];
+
 const MARKETING_EVENTS = [
   { date: "02-14", name: "西洋情人節" }, { date: "05-10", name: "母親節檔期" },
   { date: "08-08", name: "父親節" }, { date: "10-31", name: "萬聖節" },
   { date: "12-25", name: "聖誕節" },
 ];
-
-const PRESET_BREAKDOWN_ITEMS = ["早餐", "午餐", "下午茶", "晚餐", "宵夜", "DIY"];
 
 const DEPARTMENTS = ["客務部", "訂房組", "餐飲部", "休閒部", "業務部", "企劃部", "人資", "資訊", "總務", "採購", "財務部"];
 
@@ -42,7 +51,6 @@ const ROLES_INFO: any = {
   admin: { name: "系統管理員", color: "text-purple-700", bg: "bg-purple-100" },
 };
 
-// 🌟 核心：依據年份嚴格隔離的假日資料庫
 const YEARLY_DATA: any = {
   2026: {
     bigHolidays: ["02-14", "02-15", "02-16", "02-17", "02-18", "02-19", "02-20"],
@@ -54,18 +62,18 @@ const YEARLY_DATA: any = {
   },
   2027: {
     bigHolidays: [
-      "01-01", "01-02", "01-03", // 元旦連假
-      "02-04", "02-05", "02-06", "02-07", "02-08", "02-09", "02-10", // 春節連假
-      "02-27", "02-28", "03-01", // 和平紀念連假
-      "04-03", "04-04", "04-05", "04-06", // 兒童清明連假
-      "04-30", "05-01", "05-02", // 勞動節連假
-      "06-09", // 端午節
-      "09-15", // 中秋節
-      "10-09", "10-10", "10-11", // 國慶連假
-      "10-23", "10-24", "10-25", // 光復節連假
-      "12-24", "12-25", "12-26"  // 行憲紀念連假
+      "01-01", "01-02", "01-03", 
+      "02-04", "02-05", "02-06", "02-07", "02-08", "02-09", "02-10", 
+      "02-27", "02-28", "03-01", 
+      "04-03", "04-04", "04-05", "04-06", 
+      "04-30", "05-01", "05-02", 
+      "06-09", 
+      "09-15", 
+      "10-09", "10-10", "10-11", 
+      "10-23", "10-24", "10-25", 
+      "12-24", "12-25", "12-26"  
     ],
-    holidays: ["09-28"], // 教師節 (無連假)
+    holidays: ["09-28"], 
     events: {
       "01-01": "元旦", "02-04": "小年夜", "02-05": "除夕", "02-06": "春節 (初一)", "02-07": "春節 (初二)", "02-08": "春節 (初三)", "02-09": "春節補假", "02-10": "春節補假",
       "02-28": "和平紀念日", "04-04": "兒童節", "04-05": "清明節", "05-01": "勞動節",
@@ -87,18 +95,15 @@ const generateCalendar = (year: number, customEvents: any[]) => {
       const day = dateObj.getDay();
       const md = `${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       
-      // 1. 預設白紙狀態 (只有週末是假日)
       let type = (day === 6 || day === 0) ? "假日" : "平日";
       let events: string[] = [];
       let marketingEvents: string[] = [];
-
-      // 2. 套用該年份專屬的平旺假日規則
+      
       if (yearData.bigHolidays.includes(md)) {
         type = "大假日";
       } else if (yearData.holidays.includes(md)) {
         type = "假日";
       } else if (type === "平日" && year === 2026) {
-        // 🛡️ 嚴格隔離：只有 2026 年才會套用之前的寒暑假旺日規則，2027年維持原樣
         const isWinterVacation = (m === 1 && d >= 21) || (m === 2 && d <= 13);
         const isSummerVacation = m === 7 || m === 8;
         if (day === 5 || isWinterVacation || isSummerVacation) {
@@ -106,18 +111,15 @@ const generateCalendar = (year: number, customEvents: any[]) => {
         }
       }
 
-      // 3. 套用該年份專屬的節慶名稱
       if (yearData.events[md]) {
         events.push(`🧨 ${yearData.events[md]}`);
       }
 
-      // 每年固定的公曆活動
       const officialEvent = OFFICIAL_EVENTS.find((e) => e.date === md);
       if (officialEvent) events.push(`✨ ${officialEvent.name}`);
       const mktEvent = MARKETING_EVENTS.find((e) => e.date === md);
       if (mktEvent) marketingEvents.push(`🎯 ${mktEvent.name}`);
 
-      // 4. 最高指揮限：Supabase 資料庫覆蓋
       if (customEvents && customEvents.length > 0) {
         const dbMatch = customEvents.find(e => e.date === dateStr);
         if (dbMatch) {
@@ -375,13 +377,14 @@ export default function App() {
     });
   }, [scheduledProjects, dashboardDeptFilter, dashboardMonthFilter, selectedYear]);
 
+  // 🌟 解除 Admin 追蹤盲區，讓所有帳號都能看到「自己的會辦」與「自己的提案」
   const myPendingCountersign = useMemo(() => {
-    if (!currentUser || ["admin", "gm"].includes(currentUser.role)) return [];
+    if (!currentUser) return [];
     return yearProjects.filter((p) => p.status === "countersigning" && p.countersign && p.countersign.some((c: any) => c.dept === currentUser.dept && c.status === "pending"));
   }, [yearProjects, currentUser]);
   
   const myOwnProposals = useMemo(() => {
-    if (!currentUser || ["admin", "gm"].includes(currentUser.role)) return [];
+    if (!currentUser) return [];
     return yearProjects.filter((p) => p.creator && p.creator.includes(currentUser.name) && ["countersigning", "revision", "unconfirmed"].includes(p.status));
   }, [yearProjects, currentUser]);
   
@@ -414,7 +417,7 @@ export default function App() {
       else { localStorage.removeItem("mpr_account"); localStorage.removeItem("mpr_password"); localStorage.setItem("mpr_remember", "false"); }
       setCurrentUser(user); setView("app");
     } else { 
-      alert("登入失敗：帳號或密碼錯誤！(請先確認資料庫連線或資料庫內有無使用者)"); 
+      alert("登入失敗：帳號或密碼錯誤！"); 
     }
   };
   const handleGuestLogin = () => { setCurrentUser({ id: "guest", name: "訪客", role: "guest", dept: "" }); setView("app"); };
@@ -829,52 +832,46 @@ export default function App() {
           </header>
 
           <main className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+            {/* 🌟 儀表板：讓所有人都看得到「待我會辦」與「我的提案」，Admin 可另外看到「待審核簽呈」 */}
             {currentUser && currentUser.role !== "guest" && (
               <section className="mb-8">
                 <div className="flex items-center justify-between mb-4"><h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">👋 歡迎回來，{currentUser.name} <span className="text-sm text-gray-500 font-medium ml-2">({currentUser.dept} 專屬主控板)</span></h2></div>
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {currentUser.role === "employee" && (
-                    <><div className="lg:col-span-1 flex flex-col gap-6">
-                        <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-5 flex-1 flex flex-col min-h-[200px]">
-                          <div className="flex items-center gap-3 mb-4 text-orange-600"><AlertCircle className="w-6 h-6" /><h3 className="font-bold text-lg">待我會辦的專案</h3></div>
-                          <p className="text-3xl font-black mb-4">{myPendingCountersign.length}</p>
-                          <div className="space-y-2 flex-1 overflow-y-auto pr-2">
-                            {myPendingCountersign.length === 0 && (<p className="text-sm text-gray-400">目前無待會辦事項</p>)}
-                            {myPendingCountersign.map((p) => (<div key={p.id} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }} className="text-sm p-3 bg-orange-50 border border-orange-100 rounded cursor-pointer hover:bg-orange-100 truncate text-orange-800 shadow-sm font-medium">{p.title}</div>))}
+                  <div className="lg:col-span-1 flex flex-col gap-6">
+                    <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-5 flex-1 flex flex-col min-h-[160px]">
+                      <div className="flex items-center gap-3 mb-4 text-orange-600"><AlertCircle className="w-6 h-6" /><h3 className="font-bold text-lg">待我會辦的專案</h3></div>
+                      <p className="text-3xl font-black mb-4">{myPendingCountersign.length}</p>
+                      <div className="space-y-2 flex-1 overflow-y-auto pr-2">
+                        {myPendingCountersign.length === 0 && (<p className="text-sm text-gray-400">目前無待會辦事項</p>)}
+                        {myPendingCountersign.map((p) => (<div key={p.id} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }} className="text-sm p-3 bg-orange-50 border border-orange-100 rounded cursor-pointer hover:bg-orange-100 truncate text-orange-800 shadow-sm font-medium">{p.title}</div>))}
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-5 flex-1 flex flex-col min-h-[160px]">
+                      <div className="flex items-center gap-3 mb-4 text-blue-600"><PenTool className="w-6 h-6" /><h3 className="font-bold text-lg">我的提案 (待處理)</h3></div>
+                      <p className="text-3xl font-black mb-4">{myOwnProposals.length}</p>
+                      <div className="space-y-2 flex-1 overflow-y-auto pr-2">
+                        {myOwnProposals.length === 0 && (<p className="text-sm text-gray-400">尚無進行中的提案</p>)}
+                        {myOwnProposals.map((p) => (
+                          <div key={p.id} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }} className="text-sm p-2 bg-blue-50 border border-blue-100 rounded cursor-pointer hover:bg-blue-100 text-blue-800 shadow-sm flex flex-col gap-1">
+                            <span className="font-bold truncate">{p.title}</span>
+                            <span className={`self-start font-bold shrink-0 px-2 py-0.5 rounded text-[10px] ${p.status === "revision" ? "bg-red-500 text-white" : "bg-white text-blue-600 border border-blue-200"}`}>{p.status === "revision" ? "等待我確認修改" : p.status === "unconfirmed" ? "送交主管審核中" : "單位會簽中"}</span>
                           </div>
-                        </div>
-                        <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-5 flex-1 flex flex-col min-h-[200px]">
-                          <div className="flex items-center gap-3 mb-4 text-blue-600"><PenTool className="w-6 h-6" /><h3 className="font-bold text-lg">我的提案 (待處理)</h3></div>
-                          <p className="text-3xl font-black mb-4">{myOwnProposals.length}</p>
-                          <div className="space-y-2 flex-1 overflow-y-auto pr-2">
-                            {myOwnProposals.length === 0 && (<p className="text-sm text-gray-400">尚無進行中的提案</p>)}
-                            {myOwnProposals.map((p) => (
-                              <div key={p.id} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }} className="text-sm p-2 bg-blue-50 border border-blue-100 rounded cursor-pointer hover:bg-blue-100 text-blue-800 shadow-sm flex flex-col gap-1">
-                                <span className="font-bold truncate">{p.title}</span>
-                                <span className={`self-start font-bold shrink-0 px-2 py-0.5 rounded text-[10px] ${p.status === "revision" ? "bg-red-500 text-white" : "bg-white text-blue-600 border border-blue-200"}`}>{p.status === "revision" ? "等待我確認修改" : p.status === "unconfirmed" ? "送交主管審核中" : "單位會簽中"}</span>
-                              </div>
-                            ))}
-                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {["admin", "gm"].includes(currentUser.role) && (
+                      <div className="bg-white rounded-xl shadow-sm border border-purple-200 p-5 relative overflow-hidden flex-1 flex flex-col min-h-[160px]">
+                        <div className="absolute top-0 right-0 w-2 h-full bg-purple-500"></div>
+                        <div className="flex items-center gap-3 mb-4 text-purple-700"><ClipboardList className="w-6 h-6" /><h3 className="font-bold text-lg">待審核簽呈 (決議中)</h3></div>
+                        <p className="text-3xl font-black mb-4 text-purple-700">{managerPendingApproval.length} <span className="text-sm text-gray-400 font-medium">件</span></p>
+                        <div className="space-y-2 flex-1 overflow-y-auto pr-2">
+                          {managerPendingApproval.length === 0 && (<p className="text-sm text-gray-400">目前無待審核事項</p>)}
+                          {managerPendingApproval.map((p) => (<div key={p.id} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }} className="text-sm p-3 bg-purple-50 border border-purple-100 rounded cursor-pointer hover:bg-purple-100 truncate text-purple-800 font-bold shadow-sm">{p.title}</div>))}
                         </div>
                       </div>
-                      <DashboardActiveProjectsCard />
-                    </>
-                  )}
-                  {["admin", "gm"].includes(currentUser.role) && (
-                    <><div className="lg:col-span-1 flex flex-col gap-6">
-                        <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-5 relative overflow-hidden flex-1 flex flex-col min-h-[300px]">
-                          <div className="absolute top-0 right-0 w-2 h-full bg-orange-500"></div>
-                          <div className="flex items-center gap-3 mb-4 text-orange-600"><ClipboardList className="w-6 h-6" /><h3 className="font-bold text-lg">待審核簽呈 (決議中)</h3></div>
-                          <p className="text-3xl font-black mb-4 text-orange-600">{managerPendingApproval.length} <span className="text-sm text-gray-400 font-medium">件</span></p>
-                          <div className="space-y-2 flex-1 overflow-y-auto pr-2">
-                            {managerPendingApproval.length === 0 && (<p className="text-sm text-gray-400">目前無待審核事項</p>)}
-                            {managerPendingApproval.map((p) => (<div key={p.id} onClick={() => { setEditingProject({ ...p }); setModalMode("view"); setIsModalOpen(true); }} className="text-sm p-3 bg-orange-50 border border-orange-100 rounded cursor-pointer hover:bg-orange-100 truncate text-orange-800 font-bold shadow-sm">{p.title}</div>))}
-                          </div>
-                        </div>
-                      </div>
-                      <DashboardActiveProjectsCard />
-                    </>
-                  )}
+                    )}
+                  </div>
+                  <DashboardActiveProjectsCard />
                 </div>
               </section>
             )}
@@ -1157,6 +1154,7 @@ export default function App() {
                     </table>
                   </div>
 
+                  {/* 🌟 會簽意見與管理員代簽按鈕 */}
                   {editingProject.countersign?.length > 0 && (
                     <div className="mt-8 no-print border border-gray-300 rounded-lg overflow-hidden shadow-sm">
                       <div className="bg-gray-100 px-4 py-2 font-bold text-gray-800 border-b flex items-center gap-2"><PenTool className="w-4 h-4" /> 會簽意見</div>
@@ -1170,9 +1168,9 @@ export default function App() {
                             {c.status === "approved" ? (
                               <div className="text-black font-bold whitespace-pre-wrap pl-1 border-l-4 border-gray-400 ml-1 mt-1 p-2 bg-white rounded">{c.comment || "無意見。"}</div>
                             ) : (
-                              editingProject.status === "countersigning" && currentUser?.dept === c.dept && (
+                              editingProject.status === "countersigning" && (currentUser?.dept === c.dept || currentUser?.role === "admin") && (
                                 <div className="flex gap-2 mt-2">
-                                  <input type="text" id={`comment-${c.dept}`} className="flex-1 border rounded px-3 py-1.5 text-sm" placeholder="請填寫會簽意見" />
+                                  <input type="text" id={`comment-${c.dept}`} className="flex-1 border rounded px-3 py-1.5 text-sm" placeholder={currentUser?.role === 'admin' ? "管理員強制代簽" : "請填寫會簽意見"} />
                                   <button onClick={() => submitDeptComment(c.dept, (document.getElementById(`comment-${c.dept}`) as HTMLInputElement).value)} className="bg-indigo-600 text-white px-4 py-1.5 rounded text-sm font-bold hover:bg-indigo-700">送出確認</button>
                                 </div>
                               )
