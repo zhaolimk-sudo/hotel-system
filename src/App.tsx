@@ -398,6 +398,7 @@ export default function App() {
   const [selectedMonthView, setSelectedMonthView] = useState<number | null>(
     null,
   );
+  // 新增：處理點擊單日跳出的 Modal 狀態
   const [selectedDayInfo, setSelectedDayInfo] = useState<any>(null);
 
   const yearProjects = useMemo(
@@ -1507,6 +1508,24 @@ export default function App() {
                 </select>
               </div>
               <div className="flex items-center gap-1 sm:gap-3">
+                {/* 新增的：匯入按鈕區域 */}
+                <button
+                  onClick={() => alert("此為自訂匯入功能，未來可連接您的資料源")}
+                  className="text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 px-2 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1 transition-colors"
+                >
+                  <UploadCloud className="w-4 h-4" /> 
+                  <span className="hidden lg:inline">匯入專案</span>
+                </button>
+                <button
+                  onClick={() => alert("此為外部行事曆匯入功能")}
+                  className="text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 px-2 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1 transition-colors"
+                >
+                  <CalendarDays className="w-4 h-4" /> 
+                  <span className="hidden lg:inline">匯入行事曆</span>
+                </button>
+
+                <div className="h-4 sm:h-6 w-px bg-gray-200 mx-1 sm:mx-1"></div>
+
                 <button
                   onClick={() => setIsExportModalOpen(true)}
                   className="text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 px-2 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1"
@@ -1846,6 +1865,89 @@ export default function App() {
             </section>
           </main>
         </>
+      )}
+
+      {/* --- 新增：單日詳細資訊彈出視窗 (手機版修復) --- */}
+      {selectedDayInfo && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden border">
+            <div className={`px-4 py-3 border-b flex justify-between items-center ${selectedDayInfo.st.bg} ${selectedDayInfo.st.text}`}>
+              <h3 className="font-bold flex items-center gap-2">
+                <CalendarDays className="w-5 h-5" />
+                {selectedDayInfo.date}
+              </h3>
+              <button 
+                onClick={() => setSelectedDayInfo(null)}
+                className="hover:opacity-70"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <span className={`text-xs px-2 py-1 rounded shadow-sm ${selectedDayInfo.st.tag} font-bold`}>
+                  {selectedDayInfo.dailyData.type}
+                </span>
+              </div>
+              
+              {selectedDayInfo.dailyData.events?.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold text-gray-500 mb-1 border-b pb-1">官方活動</h4>
+                  <ul className="space-y-1">
+                    {selectedDayInfo.dailyData.events.map((ev: string, idx: number) => (
+                      <li key={idx} className="text-sm bg-yellow-50 text-yellow-800 border border-yellow-200 px-2 py-1 rounded">
+                        {ev}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {selectedDayInfo.dailyData.marketingEvents?.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold text-gray-500 mb-1 border-b pb-1">行銷節慶</h4>
+                  <ul className="space-y-1">
+                    {selectedDayInfo.dailyData.marketingEvents.map((ev: string, idx: number) => (
+                      <li key={idx} className="text-sm bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded">
+                        {ev}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {selectedDayInfo.dayProjects?.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold text-gray-500 mb-1 border-b pb-1">館內專案排程</h4>
+                  <ul className="space-y-1">
+                    {selectedDayInfo.dayProjects.map((p: any) => (
+                      <li 
+                        key={p.id} 
+                        className={`text-sm px-2 py-1 rounded text-white shadow-sm cursor-pointer hover:opacity-80 transition-opacity ${p.status === "scheduled" ? "bg-indigo-500" : "bg-orange-400"}`}
+                        onClick={() => {
+                          setEditingProject({ ...p });
+                          setModalMode("view");
+                          setSelectedDayInfo(null);
+                          setIsModalOpen(true);
+                        }}
+                      >
+                        {p.title}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {(!selectedDayInfo.dailyData.events?.length) && 
+               (!selectedDayInfo.dailyData.marketingEvents?.length) && 
+               (!selectedDayInfo.dayProjects?.length) && (
+                 <div className="text-center text-gray-400 text-sm py-4">
+                   本日無任何活動或專案排程
+                 </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {selectedMonthView && <MonthCalendarView month={selectedMonthView} />}
