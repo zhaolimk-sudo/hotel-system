@@ -7,6 +7,7 @@ import {
   FileSearch, Check, FileDown, CalendarDays, Printer, FileType2, Trash2,
   Lock, UserCircle, Settings, LogOut, ShieldCheck, ArrowRight, PenTool,
   ClipboardList, CheckSquare, PlayCircle, Milestone, Filter, Key,
+  Percent
 } from "lucide-react";
 
 // ==========================================
@@ -25,13 +26,22 @@ const OFFICIAL_EVENTS = [
   { date: "12-31", name: "日月潭跨年晚會煙火秀" },
 ];
 
+const PUBLIC_HOLIDAYS = [
+  { date: "01-01", name: "元旦" }, { date: "02-16", name: "除夕" },
+  { date: "02-17", name: "春節 (初一)" }, { date: "02-18", name: "春節 (初二)" },
+  { date: "02-19", name: "春節 (初三)" }, { date: "02-20", name: "春節 (初四)" },
+  { date: "02-28", name: "和平紀念日" }, { date: "04-04", name: "兒童節" },
+  { date: "04-05", name: "清明節" }, { date: "06-19", name: "端午節" },
+  { date: "09-25", name: "中秋節" }, { date: "10-10", name: "國慶日" },
+];
+
+const PRESET_BREAKDOWN_ITEMS = ["早餐", "午餐", "下午茶", "晚餐", "宵夜", "DIY", "備品"];
+
 const MARKETING_EVENTS = [
   { date: "02-14", name: "西洋情人節" }, { date: "05-10", name: "母親節檔期" },
   { date: "08-08", name: "父親節" }, { date: "10-31", name: "萬聖節" },
   { date: "12-25", name: "聖誕節" },
 ];
-
-const PRESET_BREAKDOWN_ITEMS = ["早餐", "午餐", "下午茶", "晚餐", "宵夜", "DIY"];
 
 const DEPARTMENTS = ["客務部", "訂房組", "餐飲部", "休閒部", "業務部", "企劃部", "人資", "資訊", "總務", "採購", "財務部"];
 
@@ -42,7 +52,6 @@ const ROLES_INFO: any = {
   admin: { name: "系統管理員", color: "text-purple-700", bg: "bg-purple-100" },
 };
 
-// 🌟 核心：依據年份嚴格隔離的假日資料庫
 const YEARLY_DATA: any = {
   2026: {
     bigHolidays: ["02-14", "02-15", "02-16", "02-17", "02-18", "02-19", "02-20"],
@@ -59,8 +68,7 @@ const YEARLY_DATA: any = {
       "02-27", "02-28", "03-01", 
       "04-03", "04-04", "04-05", "04-06", 
       "04-30", "05-01", "05-02", 
-      "06-09", 
-      "09-15", 
+      "06-09", "09-15", 
       "10-09", "10-10", "10-11", 
       "10-23", "10-24", "10-25", 
       "12-24", "12-25", "12-26"  
@@ -119,9 +127,7 @@ const generateCalendar = (year: number, customEvents: any[]) => {
           if (dbMatch.event_name) {
             const icon = dbMatch.is_public_holiday ? '🧨' : '✨';
             const customName = `${icon} ${dbMatch.event_name}`;
-            if (!events.includes(customName)) {
-              events.push(customName);
-            }
+            if (!events.includes(customName)) events.push(customName);
           }
         }
       }
@@ -205,22 +211,30 @@ export default function App() {
 
       const { data: projData } = await supabase.from("projects").select("*");
       if (projData) {
-        const parsedProjects = projData.map((p: any) => ({
-          ...p,
-          breakdown: typeof p.breakdown === "string" ? JSON.parse(p.breakdown || "{}") : (p.breakdown || {}),
-          countersign: typeof p.countersign === "string" ? JSON.parse(p.countersign || "[]") : (p.countersign || []),
-        }));
+        const parsedProjects = projData.map((p: any) => {
+          // 🛡️ 舊資料自動升級機制：確保 breakdown 變成陣列 (Array) 結構
+          let bd;
+          try { bd = typeof p.breakdown === "string" ? JSON.parse(p.breakdown || "[]") : (p.breakdown || []); } 
+          catch (e) { bd = []; }
+          
+          if (!Array.isArray(bd)) {
+            bd = [{ id: Date.now() + Math.random(), name: "主專案", price: bd.price || "", ota: "", items: bd.items || [], net: bd.net || "0" }];
+          }
+
+          return {
+            ...p,
+            projectType: p.projectType || 'leisure', // 預設專案類型
+            breakdown: bd,
+            countersign: typeof p.countersign === "string" ? JSON.parse(p.countersign || "[]") : (p.countersign || []),
+          };
+        });
         setProjects(parsedProjects);
       }
 
       const { data: calData } = await supabase.from("calendar_events").select("*");
-      if (calData) {
-        setDbEvents(calData);
-      }
+      if (calData) setDbEvents(calData);
 
-    } catch (e) { 
-      console.error("資料載入發生錯誤:", e); 
-    }
+    } catch (e) { console.error("資料載入發生錯誤:", e); }
     setIsLoading(false);
   };
 
@@ -235,15 +249,8 @@ export default function App() {
     const payload = existing
       ? { ...existing, description: newRemark } 
       : { date: dateStr, event_name: "特殊備註", event_type: "平日", is_public_holiday: false, description: newRemark }; 
-
     const { error } = await supabase.from('calendar_events').upsert(payload, { onConflict: 'date' });
-    if (error) {
-      alert("儲存備註失敗：" + error.message);
-    } else {
-      alert("備註已成功儲存至資料庫！");
-      fetchData(); 
-      setSelectedDayInfo(null);
-    }
+    if (error) alert("儲存備註失敗：" + error.message); else { alert("備註已成功儲存至資料庫！"); fetchData(); setSelectedDayInfo(null); }
   };
 
   const handleSaveUser = async (e: any) => {
@@ -251,8 +258,7 @@ export default function App() {
     const userId = editingUser.id || "u_" + Date.now();
     const userToSave = { ...editingUser, id: userId };
     const { error } = await supabase.from("users").upsert(userToSave);
-    if (error) alert("儲存帳號失敗！" + error.message);
-    else { fetchData(); setIsUserModalOpen(false); }
+    if (error) alert("儲存帳號失敗！" + error.message); else { fetchData(); setIsUserModalOpen(false); }
   };
 
   const handleDeleteUser = async (id: string) => {
@@ -281,10 +287,7 @@ export default function App() {
         const workbook = XLSX.read(data);
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         extractedContent = XLSX.utils.sheet_to_txt(sheet);
-      } catch (error) {
-        alert("讀取 Excel 失敗，請確認檔案格式是否正確。");
-        return;
-      }
+      } catch (error) { alert("讀取 Excel 失敗，請確認檔案格式是否正確。"); return; }
     }
     if (!extractedContent.trim()) { alert("未偵測到任何內容，請手動輸入或選擇檔案。"); return; }
 
@@ -297,19 +300,15 @@ export default function App() {
       id: Date.now(),
       title: "【從匯入自動建立】請修改標題",
       refNo: `MPR-${twYear}-${mm}-${String(projects.length + 1).padStart(3, "0")}`,
+      projectType: "leisure", // 預設類型
       applyDate: today.toISOString().split("T")[0],
       createTime: getCurrentTimeString(),
       purpose: "以下為系統匯入之原始資料，請人工整理：\n\n" + extractedContent,
-      price: "",
       startDate: `${selectedYear}-01-01`,
       endDate: `${selectedYear}-01-31`,
-      content: "",
-      precautions: "",
-      highlights: "",
-      breakdown: { price: "", net: "", items: [] },
-      countersign: [],
-      status: "countersigning",
-      feedback: "",
+      content: "", precautions: "", highlights: "",
+      breakdown: [{ id: Date.now(), name: "專案一", price: "", ota: "", items: [], net: "0" }], // 新版陣列格式
+      countersign: [], status: "countersigning", feedback: "",
       creator: `${currentUser?.dept || ""} - ${currentUser?.name || ""}`,
     });
     setModalMode("create");
@@ -328,10 +327,8 @@ export default function App() {
   const yearOptions = useMemo(() => {
     let minYear = currentYear - 1; let maxYear = currentYear + 2;
     projects.forEach((p) => {
-      const start = parseInt(p.startDate.split("-")[0], 10);
-      const end = parseInt(p.endDate.split("-")[0], 10);
-      if (!isNaN(start) && start < minYear) minYear = start;
-      if (!isNaN(end) && end > maxYear) maxYear = end;
+      const start = parseInt(p.startDate.split("-")[0], 10); const end = parseInt(p.endDate.split("-")[0], 10);
+      if (!isNaN(start) && start < minYear) minYear = start; if (!isNaN(end) && end > maxYear) maxYear = end;
     });
     const options = []; for (let i = minYear; i <= maxYear; i++) options.push(i);
     return options;
@@ -343,7 +340,6 @@ export default function App() {
   const yearProjects = useMemo(() => projects.filter((p) => p.startDate.startsWith(String(selectedYear)) || p.endDate.startsWith(String(selectedYear))), [projects, selectedYear]);
   const scheduledProjects = useMemo(() => yearProjects.filter((p) => p.status === "scheduled"), [yearProjects]);
   
-  // 🌟 甘特圖智慧排序：時間優先，年度專案沈底
   const filteredScheduledProjects = useMemo(() => {
     return scheduledProjects
       .filter((p) => {
@@ -357,23 +353,16 @@ export default function App() {
         return passDept && passMonth;
       })
       .sort((a, b) => {
-        const isFullYear = (startDate: string, endDate: string) => {
-          const start = new Date(startDate);
-          const end = new Date(endDate);
-          const diffTime = Math.abs(end.getTime() - start.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          return diffDays >= 360 || (startDate.endsWith("-01-01") && endDate.endsWith("-12-31"));
+        const isFullYear = (start: string, end: string) => {
+          const d1 = new Date(start).getTime(); const d2 = new Date(end).getTime();
+          return Math.ceil(Math.abs(d2 - d1) / (1000 * 60 * 60 * 24)) >= 360 || (start.endsWith("-01-01") && end.endsWith("-12-31"));
         };
-        const isFullA = isFullYear(a.startDate, a.endDate);
-        const isFullB = isFullYear(b.startDate, b.endDate);
-
-        if (isFullA && !isFullB) return 1;
-        if (!isFullA && isFullB) return -1;
+        const fullA = isFullYear(a.startDate, a.endDate); const fullB = isFullYear(b.startDate, b.endDate);
+        if (fullA && !fullB) return 1; if (!fullA && fullB) return -1;
         return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
       });
   }, [scheduledProjects, ganttDeptFilter, ganttMonthFilter, selectedYear]);
 
-  // 🌟 主控板專案區也套用智慧排序
   const dashboardActiveProjects = useMemo(() => {
     return scheduledProjects
       .filter((p) => {
@@ -387,18 +376,12 @@ export default function App() {
         return passDept && passMonth;
       })
       .sort((a, b) => {
-        const isFullYear = (startDate: string, endDate: string) => {
-          const start = new Date(startDate);
-          const end = new Date(endDate);
-          const diffTime = Math.abs(end.getTime() - start.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          return diffDays >= 360 || (startDate.endsWith("-01-01") && endDate.endsWith("-12-31"));
+        const isFullYear = (start: string, end: string) => {
+          const d1 = new Date(start).getTime(); const d2 = new Date(end).getTime();
+          return Math.ceil(Math.abs(d2 - d1) / (1000 * 60 * 60 * 24)) >= 360 || (start.endsWith("-01-01") && end.endsWith("-12-31"));
         };
-        const isFullA = isFullYear(a.startDate, a.endDate);
-        const isFullB = isFullYear(b.startDate, b.endDate);
-
-        if (isFullA && !isFullB) return 1;
-        if (!isFullA && isFullB) return -1;
+        const fullA = isFullYear(a.startDate, a.endDate); const fullB = isFullYear(b.startDate, b.endDate);
+        if (fullA && !fullB) return 1; if (!fullA && fullB) return -1;
         return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
       });
   }, [scheduledProjects, dashboardDeptFilter, dashboardMonthFilter, selectedYear]);
@@ -441,9 +424,7 @@ export default function App() {
       if (rememberMe) { localStorage.setItem("mpr_account", acc as string); localStorage.setItem("mpr_password", pass as string); localStorage.setItem("mpr_remember", "true"); } 
       else { localStorage.removeItem("mpr_account"); localStorage.removeItem("mpr_password"); localStorage.setItem("mpr_remember", "false"); }
       setCurrentUser(user); setView("app");
-    } else { 
-      alert("登入失敗：帳號或密碼錯誤！(請先確認資料庫連線或資料庫內有無使用者)"); 
-    }
+    } else { alert("登入失敗：帳號或密碼錯誤！(請先確認資料庫連線或資料庫內有無使用者)"); }
   };
   const handleGuestLogin = () => { setCurrentUser({ id: "guest", name: "訪客", role: "guest", dept: "" }); setView("app"); };
   const handleLogout = () => { setCurrentUser(null); setView("login"); };
@@ -452,7 +433,8 @@ export default function App() {
     if (currentUser?.role === "guest") return;
     const today = new Date(); const twYear = today.getFullYear() - 1911; const mm = String(today.getMonth() + 1).padStart(2, "0");
     setEditingProject({
-      id: Date.now(), title: "", refNo: `MPR-${twYear}-${mm}-${String(projects.length + 1).padStart(3, "0")}`, applyDate: today.toISOString().split("T")[0], createTime: getCurrentTimeString(), purpose: "", price: "", startDate: `${selectedYear}-01-01`, endDate: `${selectedYear}-01-31`, content: "", precautions: "", highlights: "", breakdown: { price: "", net: "", items: [] }, countersign: [], status: "countersigning", feedback: "", creator: `${currentUser.dept} - ${currentUser.name}`,
+      id: Date.now(), title: "", refNo: `MPR-${twYear}-${mm}-${String(projects.length + 1).padStart(3, "0")}`, projectType: "leisure", applyDate: today.toISOString().split("T")[0], createTime: getCurrentTimeString(), purpose: "", startDate: `${selectedYear}-01-01`, endDate: `${selectedYear}-01-31`, content: "", precautions: "", highlights: "", 
+      breakdown: [{ id: Date.now(), name: "專案一", price: "", ota: "", items: [], net: "0" }], countersign: [], status: "countersigning", feedback: "", creator: `${currentUser.dept} - ${currentUser.name}`,
     });
     setModalMode("create"); setIsModalOpen(true);
   };
@@ -461,17 +443,13 @@ export default function App() {
     e.preventDefault(); 
     let updatedProj = { ...editingProject }; 
     if (modalMode === "create" && updatedProj.countersign.length === 0) updatedProj.status = "revision"; 
-    await saveProjectToDb(updatedProj); 
-    setIsModalOpen(false); 
+    await saveProjectToDb(updatedProj); setIsModalOpen(false); 
   };
 
   const handleToggleDept = (dept: string) => {
     const current = editingProject.countersign || [];
-    if (current.some((c: any) => c.dept === dept)) {
-      setEditingProject({ ...editingProject, countersign: current.filter((c: any) => c.dept !== dept) });
-    } else {
-      setEditingProject({ ...editingProject, countersign: [...current, { dept, status: "pending", comment: "", time: "" }] });
-    }
+    if (current.some((c: any) => c.dept === dept)) setEditingProject({ ...editingProject, countersign: current.filter((c: any) => c.dept !== dept) });
+    else setEditingProject({ ...editingProject, countersign: [...current, { dept, status: "pending", comment: "", time: "" }] });
   };
 
   const submitDeptComment = async (deptName: string, comment: string) => {
@@ -489,48 +467,38 @@ export default function App() {
   const approveByManager = async () => { const updatedProj = { ...editingProject, status: "scheduled", feedback: "" }; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
   const rejectByManager = async () => { const updatedProj = { ...editingProject, status: "revision" }; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
 
-  const calculateNetPrice = (currentBreakdown: any) => {
-    const totalPriceStr = currentBreakdown.price || "0";
-    const totalPrice = parseFloat(totalPriceStr.replace(/,/g, "")) || 0;
-    let totalDeductions = 0;
-    (currentBreakdown.items || []).forEach((item: any) => { totalDeductions += evaluateExpression(item.value); });
-    const netPrice = totalPrice - totalDeductions;
-    return new Intl.NumberFormat("en-US").format(netPrice);
+  // 🌟 多重專案拆帳邏輯 
+  const updatePackage = (pIdx: number, field: string, value: any) => {
+    const newBd = [...editingProject.breakdown];
+    newBd[pIdx][field] = value;
+    
+    // 如果修改的是金額、OTA% 或扣除項目，立刻重算淨利
+    if (['price', 'ota', 'items'].includes(field)) {
+      const price = parseFloat(String(newBd[pIdx].price).replace(/,/g, "")) || 0;
+      const ota = parseFloat(String(newBd[pIdx].ota)) || 0;
+      const otaAmount = price * (ota / 100);
+      let totalDeductions = 0;
+      (newBd[pIdx].items || []).forEach((item: any) => { totalDeductions += evaluateExpression(item.value); });
+      const net = price - otaAmount - totalDeductions;
+      newBd[pIdx].net = new Intl.NumberFormat("en-US").format(net);
+    }
+    setEditingProject({ ...editingProject, breakdown: newBd });
   };
 
-  const handleBreakdownPriceChange = (value: string) => {
-    const newBreakdown = { ...editingProject.breakdown, price: value };
-    newBreakdown.net = calculateNetPrice(newBreakdown);
-    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  const handleAddPackage = () => {
+    setEditingProject({ ...editingProject, breakdown: [...editingProject.breakdown, { id: Date.now(), name: `專案${editingProject.breakdown.length + 1}`, price: "", ota: "", items: [], net: "0" }] });
   };
 
-  const handleTogglePreset = (presetName: string) => {
-    let newItems = [...(editingProject.breakdown?.items || [])];
-    if (newItems.some((i) => i.name === presetName)) newItems = newItems.filter((i) => i.name !== presetName);
-    else newItems.push({ name: presetName, value: "" });
-    const newBreakdown = { ...editingProject.breakdown, items: newItems };
-    newBreakdown.net = calculateNetPrice(newBreakdown);
-    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  const handleRemovePackage = (idx: number) => {
+    const newBd = [...editingProject.breakdown]; newBd.splice(idx, 1);
+    setEditingProject({ ...editingProject, breakdown: newBd });
   };
 
-  const handleAddBreakdownItem = () => {
-    const newBreakdown = { ...editingProject.breakdown, items: [...(editingProject.breakdown.items || []), { name: "新項目", value: "" }] };
-    newBreakdown.net = calculateNetPrice(newBreakdown);
-    setEditingProject({ ...editingProject, breakdown: newBreakdown });
-  };
-
-  const handleRemoveBreakdownItem = (index: number) => {
-    const newItems = [...editingProject.breakdown.items]; newItems.splice(index, 1);
-    const newBreakdown = { ...editingProject.breakdown, items: newItems };
-    newBreakdown.net = calculateNetPrice(newBreakdown);
-    setEditingProject({ ...editingProject, breakdown: newBreakdown });
-  };
-
-  const handleBreakdownItemChange = (index: number, field: string, value: string) => {
-    const newItems = [...editingProject.breakdown.items]; newItems[index][field] = value;
-    const newBreakdown = { ...editingProject.breakdown, items: newItems };
-    newBreakdown.net = calculateNetPrice(newBreakdown);
-    setEditingProject({ ...editingProject, breakdown: newBreakdown });
+  const handleTogglePreset = (pIdx: number, presetName: string) => {
+    let items = [...(editingProject.breakdown[pIdx].items || [])];
+    if (items.some((i) => i.name === presetName)) items = items.filter((i) => i.name !== presetName);
+    else items.push({ name: presetName, value: "" });
+    updatePackage(pIdx, 'items', items);
   };
 
   const handleExportSystemPDF = () => {
@@ -541,10 +509,22 @@ export default function App() {
   const exportSingleProjectToWord = (project: any) => {
     const header = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>簽呈匯出</title><style>body{font-family:"Microsoft JhengHei",Arial,sans-serif;}table{border-collapse:collapse;width:100%;margin-bottom:20px;}th,td{border:1px solid black;padding:8px;text-align:left;vertical-align:top;}.center{text-align:center;}.no-border{border:none;}.no-border td{border:none;padding:4px 0;} .comments { color: black; font-weight: bold; background-color: #f9fafb; padding: 10px; border: 1px solid #ccc; }</style></head><body>`;
     const formatText = (t: string) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
-    const itemsHeader = (project.breakdown?.items || []).map((i: any) => `<th class="center">${formatText(i.name)}</th>`).join("");
-    const itemsData = (project.breakdown?.items || []).map((i: any) => `<td class="center">${formatText(i.value)}</td>`).join("");
+    
+    // 🌟 Word 匯出支援多個專案包裹
+    let breakdownHtml = "";
+    (project.breakdown || []).forEach((pkg: any) => {
+      const otaText = pkg.ota ? `OTA抽成(${pkg.ota}%)` : "OTA抽成";
+      const otaVal = pkg.ota ? ((parseFloat(String(pkg.price).replace(/,/g, ""))||0) * (parseFloat(pkg.ota)/100)) : 0;
+      const itemsHeader = (pkg.items || []).map((i: any) => `<th class="center">${formatText(i.name)}</th>`).join("");
+      const itemsData = (pkg.items || []).map((i: any) => `<td class="center">${formatText(i.value)}</td>`).join("");
+      
+      breakdownHtml += `<h4 style="margin-bottom:5px;">${formatText(pkg.name)}</h4>
+        <table><tr><th class="center" width="20%">售價</th><th class="center" width="20%">${otaText}</th>${itemsHeader}<th class="center" width="20%">淨價</th></tr>
+        <tr><td class="center">${formatText(pkg.price)}</td><td class="center text-red-600">${otaVal > 0 ? "- " + otaVal : "0"}</td>${itemsData}<td class="center"><b>${formatText(pkg.net)}</b></td></tr></table>`;
+    });
+
     const commentsHtml = (project.countersign || []).map((c: any) => `<div>[${c.dept}] ${c.status === "approved" ? c.time + " - " + formatText(c.comment || "無意見") : "待確認..."}</div>`).join("");
-    const htmlContent = `<h2 class="center">行銷公關部 簽呈 Official application</h2><table><tr><th class="center" width="20%">簽核</th><th class="center" width="20%">經辦人</th><th class="center" width="20%">部門主管</th><th class="center" width="20%">營運主管</th><th class="center" width="20%">總經理</th></tr><tr><td height="60"></td><td></td><td></td><td></td><td></td></tr></table><table class="no-border"><tr><td class="no-border">Date 日期：${formatText(project.applyDate)}</td></tr><tr><td class="no-border">Ref No 文檔號：${formatText(project.refNo)}</td></tr></table><table><tr><th width="15%">主旨</th><td>${formatText(project.title)}</td></tr><tr><th>說明</th><td>${formatText(project.purpose)}</td></tr><tr><th>活動售價</th><td>${formatText(project.price)}</td></tr><tr><th>活動日期</th><td>${formatText(project.startDate)} ～ ${formatText(project.endDate)}</td></tr><tr><th>內容說明</th><td>${formatText(project.content)}</td></tr><tr><th>注意事項</th><td>${formatText(project.precautions)}</td></tr></table><h3>內拆表</h3><table><tr><th class="center">售價</th>${itemsHeader}<th class="center">淨價</th></tr><tr><td class="center">${formatText(project.breakdown?.price)}</td>${itemsData}<td class="center"><b>${formatText(project.breakdown?.net)}</b></td></tr></table><table><tr><th width="15%">專案亮點</th><td>${formatText(project.highlights)}</td></tr><tr><th>會簽單位</th><td>${formatText((project.countersign || []).map((c: any) => c.dept).join("、 "))}</td></tr></table>${commentsHtml ? `<h3>會簽單位意見備註</h3><div class="comments">${commentsHtml}</div>` : ""}`;
+    const htmlContent = `<h2 class="center">行銷公關部 簽呈 Official application</h2><table><tr><th class="center" width="20%">簽核</th><th class="center" width="20%">經辦人</th><th class="center" width="20%">部門主管</th><th class="center" width="20%">營運主管</th><th class="center" width="20%">總經理</th></tr><tr><td height="60"></td><td></td><td></td><td></td><td></td></tr></table><table class="no-border"><tr><td class="no-border">Date 日期：${formatText(project.applyDate)}</td></tr><tr><td class="no-border">Ref No 文檔號：${formatText(project.refNo)}</td></tr><tr><td class="no-border">專案類型：${project.projectType === 'room' ? '住房專案' : '休閒 / 餐飲專案'}</td></tr></table><table><tr><th width="15%">主旨</th><td>${formatText(project.title)}</td></tr><tr><th>說明</th><td>${formatText(project.purpose)}</td></tr><tr><th>活動日期</th><td>${formatText(project.startDate)} ～ ${formatText(project.endDate)}</td></tr><tr><th>內容說明</th><td>${formatText(project.content)}</td></tr><tr><th>注意事項</th><td>${formatText(project.precautions)}</td></tr></table><h3>財務內拆表</h3>${breakdownHtml}<table><tr><th width="15%">專案亮點</th><td>${formatText(project.highlights)}</td></tr><tr><th>會簽單位</th><td>${formatText((project.countersign || []).map((c: any) => c.dept).join("、 "))}</td></tr></table>${commentsHtml ? `<h3>會簽單位意見備註</h3><div class="comments">${commentsHtml}</div>` : ""}`;
     const blob = new Blob(["\ufeff", header + htmlContent + "</body></html>"], { type: "application/msword" });
     const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `簽呈_${project.title.replace(/[\\/:*?"<>|]/g, "")}.doc`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
   };
@@ -1092,7 +1072,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 專案 Modal (檢視 / 編輯 / 新增) */}
+      {/* 💥 最重要：專案 Modal (檢視 / 編輯 / 新增) 💥 */}
       <style>{`
         .sign-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; border: 1px solid #d1d5db; }
         .sign-table th, .sign-table td { border: 1px solid #d1d5db; padding: 0.75rem; text-align: left; vertical-align: top; }
@@ -1111,7 +1091,8 @@ export default function App() {
 
       {isModalOpen && editingProject && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm print:bg-white print:p-0">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl flex flex-col max-h-[95vh] print-modal print:max-h-none print:h-auto overflow-hidden print:overflow-visible relative" id="pdf-export-area">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl flex flex-col max-h-[95vh] print-modal print:max-h-none print:h-auto overflow-hidden print:overflow-visible relative" id="pdf-export-area">
+            
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 no-print">
               <h2 className="text-xl font-bold text-gray-800">
                 {modalMode === "create" ? "新增簽呈" : modalMode === "edit" ? "編輯簽呈" : "專案簽呈內容"}
@@ -1129,7 +1110,7 @@ export default function App() {
 
             <div className="p-8 overflow-y-auto print:p-4 text-sm print:text-base text-gray-900 bg-white">
               {modalMode === "view" ? (
-                <div className="max-w-3xl mx-auto">
+                <div className="max-w-4xl mx-auto">
                   <WorkflowProgressBar project={editingProject} />
                   <h1 className="text-2xl font-bold text-center mb-6">行銷公關部 簽呈 Official application</h1>
                   <table className="sign-table center">
@@ -1137,36 +1118,48 @@ export default function App() {
                     <tbody><tr><td className="h-16"></td><td></td><td></td><td></td><td></td></tr></tbody>
                   </table>
                   <div className="mb-4 font-medium text-gray-700 print:text-black flex justify-between">
-                    <span>Date：{editingProject.applyDate}</span>
-                    <span>Ref No：{editingProject.refNo}</span>
+                    <span>Date 日期：{editingProject.applyDate}</span>
+                    <span>Ref No 文檔號：{editingProject.refNo}</span>
                   </div>
                   <table className="sign-table">
                     <tbody>
+                      <tr><th className="w-32 center">專案類型</th><td className="font-bold text-indigo-600">{editingProject.projectType === 'room' ? '🏨 住房專案' : '☕ 休閒 / 餐飲專案'}</td></tr>
                       <tr><th className="w-32 center">主旨</th><td className="font-bold text-lg">{editingProject.title}</td></tr>
                       <tr><th className="center">說明</th><td className="whitespace-pre-wrap">{editingProject.purpose}</td></tr>
-                      <tr><th className="center">活動售價</th><td>{editingProject.price}</td></tr>
                       <tr><th className="center">活動日期</th><td>{editingProject.startDate} ～ {editingProject.endDate}</td></tr>
                       <tr><th className="center">內容說明</th><td className="whitespace-pre-wrap">{editingProject.content}</td></tr>
                       <tr><th className="center">注意事項</th><td className="whitespace-pre-wrap">{editingProject.precautions}</td></tr>
                     </tbody>
                   </table>
-                  <h3 className="font-bold mb-2 text-lg">內拆表</h3>
-                  <table className="sign-table center">
-                    <thead>
-                      <tr>
-                        <th className="center">售價</th>
-                        {(editingProject.breakdown?.items || []).map((item: any, idx: number) => (<th key={idx} className="center">{item.name}</th>))}
-                        <th className="center">淨價</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="font-medium">{editingProject.breakdown?.price}</td>
-                        {(editingProject.breakdown?.items || []).map((item: any, idx: number) => (<td key={idx}>{item.value}</td>))}
-                        <td className="font-bold text-indigo-700 print:text-black">{editingProject.breakdown?.net}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  
+                  <h3 className="font-bold mb-2 text-lg">財務內拆表 (多重專案)</h3>
+                  {(editingProject.breakdown || []).map((pkg: any, idx: number) => {
+                    const otaVal = pkg.ota ? ((parseFloat(String(pkg.price).replace(/,/g, "")) || 0) * (parseFloat(pkg.ota) / 100)) : 0;
+                    return (
+                      <div key={pkg.id || idx} className="mb-6">
+                        <h4 className="font-bold text-indigo-800 mb-1">{pkg.name}</h4>
+                        <table className="sign-table center !mb-0">
+                          <thead>
+                            <tr>
+                              <th className="center" width="20%">售價</th>
+                              <th className="center" width="20%">OTA抽成 ({pkg.ota || 0}%)</th>
+                              {(pkg.items || []).map((item: any, iIdx: number) => (<th key={iIdx} className="center">{item.name}</th>))}
+                              <th className="center" width="20%">淨價</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td className="font-medium">{pkg.price}</td>
+                              <td className="text-red-600 font-medium">{otaVal > 0 ? `- ${otaVal}` : "0"}</td>
+                              {(pkg.items || []).map((item: any, iIdx: number) => (<td key={iIdx}>{item.value}</td>))}
+                              <td className="font-bold text-indigo-700 print:text-black text-lg">{pkg.net}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })}
+
                   <div className="mt-6 mb-8">
                     <h3 className="font-bold text-lg text-red-600 mb-2">專案亮點</h3>
                     <p className="bg-red-50 p-4 rounded border font-medium whitespace-pre-wrap">{editingProject.highlights}</p>
@@ -1231,68 +1224,135 @@ export default function App() {
                   </div>
                 </div>
               ) : (
+                
+                // --- 📝 編輯模式表單 ---
                 <form id="project-form" onSubmit={handleSave} className="space-y-8 max-w-4xl mx-auto bg-white">
                   <div className="space-y-4">
-                    <h3 className="font-bold text-lg border-b pb-2 text-indigo-800">一、基本資料</h3>
+                    <h3 className="font-bold text-lg border-b pb-2 text-indigo-800 flex items-center gap-2">
+                      一、基本資料
+                    </h3>
                     <div className="grid grid-cols-2 gap-4">
                       <div><label className="block font-medium mb-1">文檔號</label><input type="text" className="w-full border rounded-lg p-2.5 bg-gray-50" value={editingProject.refNo} onChange={(e) => setEditingProject({ ...editingProject, refNo: e.target.value })} /></div>
                       <div><label className="block font-medium mb-1">申請日期</label><input type="date" className="w-full border rounded-lg p-2.5 bg-gray-50" value={editingProject.applyDate} onChange={(e) => setEditingProject({ ...editingProject, applyDate: e.target.value })} /></div>
                     </div>
+                    {/* 🌟 新增：專案類型選擇 */}
+                    <div className="pt-2">
+                      <label className="block font-medium mb-2">專案類型</label>
+                      <div className="flex gap-6">
+                        <label className="flex items-center gap-2 cursor-pointer font-bold text-gray-700">
+                          <input type="radio" name="projectType" checked={editingProject.projectType === 'room'} onChange={() => setEditingProject({...editingProject, projectType: 'room'})} className="w-5 h-5 text-indigo-600" />
+                          🏨 住房專案
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer font-bold text-gray-700">
+                          <input type="radio" name="projectType" checked={editingProject.projectType === 'leisure'} onChange={() => setEditingProject({...editingProject, projectType: 'leisure'})} className="w-5 h-5 text-indigo-600" />
+                          ☕ 休閒 / 餐飲專案
+                        </label>
+                      </div>
+                    </div>
                   </div>
+
                   <div className="space-y-4">
                     <h3 className="font-bold text-lg border-b pb-2 text-indigo-800">二、活動內容</h3>
-                    <div><label className="block font-medium mb-1">專案名稱</label><input type="text" required className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500" value={editingProject.title} onChange={(e) => setEditingProject({ ...editingProject, title: e.target.value })} /></div>
+                    <div><label className="block font-medium mb-1">專案主旨</label><input type="text" required className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500" value={editingProject.title} onChange={(e) => setEditingProject({ ...editingProject, title: e.target.value })} /></div>
                     <div><label className="block font-medium mb-1">企劃目的</label><textarea rows={2} className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500" value={editingProject.purpose} onChange={(e) => setEditingProject({ ...editingProject, purpose: e.target.value })}></textarea></div>
-                    <div className="grid grid-cols-3 gap-4">
-                      <div><label className="block font-medium mb-1">活動售價</label><input type="text" className="w-full border rounded-lg p-2.5" placeholder="例: 每房 NT$5,188" value={editingProject.price} onChange={(e) => setEditingProject({ ...editingProject, price: e.target.value })} /></div>
-                      <div><label className="block font-medium mb-1">開始日期</label><input type="date" required className="w-full border rounded-lg p-2.5" value={editingProject.startDate} onChange={(e) => setEditingProject({ ...editingProject, startDate: e.target.value })} /></div>
-                      <div><label className="block font-medium mb-1">結束日期</label><input type="date" required className="w-full border rounded-lg p-2.5" value={editingProject.endDate} onChange={(e) => setEditingProject({ ...editingProject, endDate: e.target.value })} /></div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div><label className="block font-medium mb-1">總區間 - 開始日期</label><input type="date" required className="w-full border rounded-lg p-2.5" value={editingProject.startDate} onChange={(e) => setEditingProject({ ...editingProject, startDate: e.target.value })} /></div>
+                      <div><label className="block font-medium mb-1">總區間 - 結束日期</label><input type="date" required className="w-full border rounded-lg p-2.5" value={editingProject.endDate} onChange={(e) => setEditingProject({ ...editingProject, endDate: e.target.value })} /></div>
                     </div>
                     <div><label className="block font-medium mb-1">內容說明</label><textarea rows={4} className="w-full border rounded-lg p-2.5" value={editingProject.content} onChange={(e) => setEditingProject({ ...editingProject, content: e.target.value })}></textarea></div>
                     <div><label className="block font-medium mb-1">注意事項</label><textarea rows={3} className="w-full border rounded-lg p-2.5" value={editingProject.precautions} onChange={(e) => setEditingProject({ ...editingProject, precautions: e.target.value })}></textarea></div>
                     <div><label className="block font-medium text-red-600 mb-1">專案亮點</label><textarea rows={2} className="w-full border-red-200 rounded-lg p-2.5 bg-red-50 focus:ring-red-500" value={editingProject.highlights} onChange={(e) => setEditingProject({ ...editingProject, highlights: e.target.value })}></textarea></div>
                   </div>
+
                   <div className="space-y-4">
                     <div className="flex justify-between items-center border-b pb-2">
-                      <h3 className="font-bold text-lg text-indigo-800">三、財務內拆表</h3>
-                      <button type="button" onClick={handleAddBreakdownItem} className="text-sm flex items-center gap-1 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg"><Plus className="w-4 h-4" /> 自訂項目</button>
+                      <h3 className="font-bold text-lg text-indigo-800">三、財務內拆表 (支援多重專案)</h3>
+                      <button type="button" onClick={handleAddPackage} className="text-sm flex items-center gap-1 bg-indigo-600 text-white px-3 py-1.5 rounded-lg shadow-sm hover:bg-indigo-700">
+                        <Plus className="w-4 h-4" /> 新增一個子專案
+                      </button>
                     </div>
-                    <div className="bg-slate-50 p-3 rounded-lg border">
-                      <label className="block font-bold mb-2">快速勾選：</label>
-                      <div className="flex flex-wrap gap-3">
-                        {PRESET_BREAKDOWN_ITEMS.map((preset) => (
-                          <label key={preset} className="flex items-center gap-2 bg-white border px-3 py-1.5 rounded cursor-pointer">
-                            <input type="checkbox" checked={(editingProject.breakdown?.items || []).some((i: any) => i.name === preset)} onChange={() => handleTogglePreset(preset)} className="w-4 h-4 text-indigo-600" />
-                            <span className="text-sm font-medium">{preset}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="overflow-x-auto pb-2">
-                      <table className="w-full border-collapse border min-w-[600px] text-sm">
-                        <thead>
-                          <tr className="bg-indigo-50">
-                            <th className="border p-3 w-32 font-bold">總售價</th>
-                            {(editingProject.breakdown?.items || []).map((item: any, idx: number) => (
-                              <th key={idx} className="border p-2 relative group min-w-[120px]">
-                                <input type="text" className="w-full bg-transparent border-b border-indigo-300 focus:border-indigo-600 outline-none text-center font-bold text-indigo-800" value={item.name} onChange={(e) => handleBreakdownItemChange(idx, "name", e.target.value)} placeholder="名稱" />
-                                <button type="button" onClick={() => handleRemoveBreakdownItem(idx)} className="absolute top-1 right-1 bg-red-100 text-red-600 rounded-full p-1 opacity-0 group-hover:opacity-100"><Trash2 className="w-3 h-3" /></button>
-                              </th>
-                            ))}
-                            <th className="border p-3 text-indigo-700 w-32 font-bold">客房淨價</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className="border p-2"><input type="text" className="w-full border rounded p-2 text-center" placeholder="總金額" value={editingProject.breakdown?.price || ""} onChange={(e) => handleBreakdownPriceChange(e.target.value)} /></td>
-                            {(editingProject.breakdown?.items || []).map((item: any, idx: number) => (
-                              <td key={idx} className="border p-2"><input type="text" className="w-full border rounded p-2 text-center" value={item.value} onChange={(e) => handleBreakdownItemChange(idx, "value", e.target.value)} placeholder="金額或算式" /></td>
-                            ))}
-                            <td className="border p-2 bg-indigo-50/50"><div className="w-full border-2 border-indigo-400 bg-white font-bold text-indigo-800 rounded p-2 text-center min-h-[36px] flex items-center justify-center">{editingProject.breakdown?.net || "0"}</div></td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
+
+                    {/* 🌟 全新的多重包裹拆帳 UI */}
+                    {(editingProject.breakdown || []).map((pkg: any, pIdx: number) => {
+                      const otaVal = pkg.ota ? ((parseFloat(String(pkg.price).replace(/,/g, "")) || 0) * (parseFloat(pkg.ota) / 100)) : 0;
+                      return (
+                        <div key={pkg.id || pIdx} className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 shadow-sm">
+                          <div className="flex justify-between items-center mb-4">
+                            <input 
+                              type="text" 
+                              className="font-bold text-lg text-indigo-800 bg-transparent border-b-2 border-indigo-300 focus:border-indigo-600 outline-none px-1 py-1 w-2/3" 
+                              value={pkg.name} 
+                              onChange={(e) => updatePackage(pIdx, 'name', e.target.value)} 
+                              placeholder="輸入專案名稱 (例：專案一 湯屋2H)" 
+                            />
+                            {editingProject.breakdown.length > 1 && (
+                              <button type="button" onClick={() => handleRemovePackage(pIdx)} className="text-red-500 hover:text-red-700 flex items-center gap-1 text-sm font-bold bg-red-50 px-2 py-1 rounded">
+                                <Trash2 className="w-4 h-4" /> 刪除此專案
+                              </button>
+                            )}
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 bg-white p-3 rounded-lg border">
+                            <div>
+                              <label className="block text-xs font-bold text-gray-500 mb-1">售價</label>
+                              <input type="text" className="w-full border rounded p-2 text-sm font-bold" value={pkg.price} onChange={(e) => updatePackage(pIdx, 'price', e.target.value)} placeholder="總金額" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold text-gray-500 mb-1">OTA 抽成 (%)</label>
+                              <div className="relative">
+                                <input type="number" className="w-full border rounded p-2 text-sm pl-8" value={pkg.ota} onChange={(e) => updatePackage(pIdx, 'ota', e.target.value)} placeholder="例: 15" />
+                                <Percent className="w-4 h-4 absolute left-2 top-2.5 text-gray-400" />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold text-red-500 mb-1">OTA 扣除額</label>
+                              <div className="w-full bg-red-50 border border-red-100 rounded p-2 text-sm font-bold text-red-700">- {otaVal}</div>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold text-indigo-600 mb-1">最終淨價 (扣除OTA與內扣)</label>
+                              <div className="w-full bg-indigo-100 border border-indigo-200 rounded p-2 text-lg font-black text-indigo-800">{pkg.net}</div>
+                            </div>
+                          </div>
+
+                          <div className="mt-4">
+                            <div className="flex justify-between items-center mb-2">
+                              <label className="font-bold text-sm">內部扣除成本設定：</label>
+                              <button type="button" onClick={() => handleAddPackageItem(pIdx)} className="text-xs flex items-center gap-1 bg-white border border-gray-300 text-gray-700 px-2 py-1 rounded hover:bg-gray-100">
+                                <Plus className="w-3 h-3" /> 自訂扣除項目
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-2 mb-3">
+                              <span className="text-xs text-gray-500 py-1">快速新增：</span>
+                              {PRESET_BREAKDOWN_ITEMS.map((preset) => (
+                                <button
+                                  key={preset} type="button"
+                                  onClick={() => handleTogglePreset(pIdx, preset)}
+                                  className={`text-xs px-2 py-1 rounded border transition-colors ${(pkg.items || []).some((i: any) => i.name === preset) ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
+                                >
+                                  {(pkg.items || []).some((i: any) => i.name === preset) ? '✓ ' : ''}{preset}
+                                </button>
+                              ))}
+                            </div>
+                            
+                            {(pkg.items || []).length > 0 && (
+                              <table className="w-full border-collapse border bg-white text-sm">
+                                <thead><tr className="bg-gray-100"><th className="border p-2 text-left w-1/2">扣除項目名稱</th><th className="border p-2 text-left">扣除金額</th><th className="border p-2 w-12"></th></tr></thead>
+                                <tbody>
+                                  {(pkg.items || []).map((item: any, iIdx: number) => (
+                                    <tr key={iIdx}>
+                                      <td className="border p-1"><input type="text" className="w-full p-1 outline-none" value={item.name} onChange={(e) => handlePackageItemChange(pIdx, iIdx, 'name', e.target.value)} placeholder="名稱" /></td>
+                                      <td className="border p-1"><input type="text" className="w-full p-1 outline-none" value={item.value} onChange={(e) => handlePackageItemChange(pIdx, iIdx, 'value', e.target.value)} placeholder="金額" /></td>
+                                      <td className="border p-1 text-center"><button type="button" onClick={() => handleRemovePackageItem(pIdx, iIdx)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4 mx-auto" /></button></td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
                   </div>
                   <div className="space-y-4">
                     <h3 className="font-bold text-lg border-b pb-2 text-indigo-800">四、會簽與設定</h3>
@@ -1314,7 +1374,7 @@ export default function App() {
             {modalMode !== "view" && (
               <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3 no-print">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2 text-gray-600 bg-white border rounded-lg font-medium">取消</button>
-                <button type="submit" form="project-form" className="bg-indigo-600 text-white px-8 py-2 rounded-lg font-medium">儲存</button>
+                <button type="submit" form="project-form" className="bg-indigo-600 text-white px-8 py-2 rounded-lg font-medium">儲存簽呈</button>
               </div>
             )}
           </div>
