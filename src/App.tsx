@@ -212,7 +212,6 @@ export default function App() {
       const { data: projData } = await supabase.from("projects").select("*");
       if (projData) {
         const parsedProjects = projData.map((p: any) => {
-          // 🛡️ 舊資料自動升級機制：確保 breakdown 變成陣列 (Array) 結構
           let bd;
           try { bd = typeof p.breakdown === "string" ? JSON.parse(p.breakdown || "[]") : (p.breakdown || []); } 
           catch (e) { bd = []; }
@@ -223,7 +222,7 @@ export default function App() {
 
           return {
             ...p,
-            projectType: p.projectType || 'leisure', // 預設專案類型
+            projectType: p.projectType || 'leisure',
             breakdown: bd,
             countersign: typeof p.countersign === "string" ? JSON.parse(p.countersign || "[]") : (p.countersign || []),
           };
@@ -300,14 +299,14 @@ export default function App() {
       id: Date.now(),
       title: "【從匯入自動建立】請修改標題",
       refNo: `MPR-${twYear}-${mm}-${String(projects.length + 1).padStart(3, "0")}`,
-      projectType: "leisure", // 預設類型
+      projectType: "leisure",
       applyDate: today.toISOString().split("T")[0],
       createTime: getCurrentTimeString(),
       purpose: "以下為系統匯入之原始資料，請人工整理：\n\n" + extractedContent,
       startDate: `${selectedYear}-01-01`,
       endDate: `${selectedYear}-01-31`,
       content: "", precautions: "", highlights: "",
-      breakdown: [{ id: Date.now(), name: "專案一", price: "", ota: "", items: [], net: "0" }], // 新版陣列格式
+      breakdown: [{ id: Date.now(), name: "專案一", price: "", ota: "", items: [], net: "0" }],
       countersign: [], status: "countersigning", feedback: "",
       creator: `${currentUser?.dept || ""} - ${currentUser?.name || ""}`,
     });
@@ -467,18 +466,20 @@ export default function App() {
   const approveByManager = async () => { const updatedProj = { ...editingProject, status: "scheduled", feedback: "" }; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
   const rejectByManager = async () => { const updatedProj = { ...editingProject, status: "revision" }; await saveProjectToDb(updatedProj); setIsModalOpen(false); };
 
-  // 🌟 多重專案拆帳邏輯 
+  // 🌟 多重專案拆帳邏輯 (已修復輸入與四捨五入)
   const updatePackage = (pIdx: number, field: string, value: any) => {
     const newBd = [...editingProject.breakdown];
     newBd[pIdx][field] = value;
     
-    // 如果修改的是金額、OTA% 或扣除項目，立刻重算淨利
+    // 重算淨利 (含四捨五入)
     if (['price', 'ota', 'items'].includes(field)) {
       const price = parseFloat(String(newBd[pIdx].price).replace(/,/g, "")) || 0;
       const ota = parseFloat(String(newBd[pIdx].ota)) || 0;
-      const otaAmount = price * (ota / 100);
+      const otaAmount = Math.round(price * (ota / 100)); // 🌟 OTA 抽成四捨五入
       let totalDeductions = 0;
-      (newBd[pIdx].items || []).forEach((item: any) => { totalDeductions += evaluateExpression(item.value); });
+      (newBd[pIdx].items || []).forEach((item: any) => { 
+          totalDeductions += evaluateExpression(item.value); 
+      });
       const net = price - otaAmount - totalDeductions;
       newBd[pIdx].net = new Intl.NumberFormat("en-US").format(net);
     }
@@ -496,8 +497,29 @@ export default function App() {
 
   const handleTogglePreset = (pIdx: number, presetName: string) => {
     let items = [...(editingProject.breakdown[pIdx].items || [])];
-    if (items.some((i) => i.name === presetName)) items = items.filter((i) => i.name !== presetName);
+    if (items.some((i: any) => i.name === presetName)) items = items.filter((i: any) => i.name !== presetName);
     else items.push({ name: presetName, value: "" });
+    updatePackage(pIdx, 'items', items);
+  };
+
+  // 🌟 修復的函數：新增子專案的自訂扣除項目
+  const handleAddPackageItem = (pIdx: number) => {
+    let items = [...(editingProject.breakdown[pIdx].items || [])];
+    items.push({ name: "新項目", value: "" });
+    updatePackage(pIdx, 'items', items);
+  };
+
+  // 🌟 修復的函數：移除子專案的自訂扣除項目
+  const handleRemovePackageItem = (pIdx: number, iIdx: number) => {
+    let items = [...(editingProject.breakdown[pIdx].items || [])];
+    items.splice(iIdx, 1);
+    updatePackage(pIdx, 'items', items);
+  };
+
+  // 🌟 修復的函數：修改子專案的自訂扣除項目內容 (名稱與金額)
+  const handlePackageItemChange = (pIdx: number, iIdx: number, field: string, value: string) => {
+    let items = [...(editingProject.breakdown[pIdx].items || [])];
+    items[iIdx] = { ...items[iIdx], [field]: value };
     updatePackage(pIdx, 'items', items);
   };
 
@@ -510,11 +532,11 @@ export default function App() {
     const header = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>簽呈匯出</title><style>body{font-family:"Microsoft JhengHei",Arial,sans-serif;}table{border-collapse:collapse;width:100%;margin-bottom:20px;}th,td{border:1px solid black;padding:8px;text-align:left;vertical-align:top;}.center{text-align:center;}.no-border{border:none;}.no-border td{border:none;padding:4px 0;} .comments { color: black; font-weight: bold; background-color: #f9fafb; padding: 10px; border: 1px solid #ccc; }</style></head><body>`;
     const formatText = (t: string) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
     
-    // 🌟 Word 匯出支援多個專案包裹
+    // Word 匯出支援多個專案包裹 (含 OTA 四捨五入)
     let breakdownHtml = "";
     (project.breakdown || []).forEach((pkg: any) => {
       const otaText = pkg.ota ? `OTA抽成(${pkg.ota}%)` : "OTA抽成";
-      const otaVal = pkg.ota ? ((parseFloat(String(pkg.price).replace(/,/g, ""))||0) * (parseFloat(pkg.ota)/100)) : 0;
+      const otaVal = pkg.ota ? Math.round((parseFloat(String(pkg.price).replace(/,/g, ""))||0) * (parseFloat(pkg.ota)/100)) : 0;
       const itemsHeader = (pkg.items || []).map((i: any) => `<th class="center">${formatText(i.name)}</th>`).join("");
       const itemsData = (pkg.items || []).map((i: any) => `<td class="center">${formatText(i.value)}</td>`).join("");
       
@@ -1134,7 +1156,7 @@ export default function App() {
                   
                   <h3 className="font-bold mb-2 text-lg">財務內拆表 (多重專案)</h3>
                   {(editingProject.breakdown || []).map((pkg: any, idx: number) => {
-                    const otaVal = pkg.ota ? ((parseFloat(String(pkg.price).replace(/,/g, "")) || 0) * (parseFloat(pkg.ota) / 100)) : 0;
+                    const otaVal = pkg.ota ? Math.round((parseFloat(String(pkg.price).replace(/,/g, "")) || 0) * (parseFloat(pkg.ota) / 100)) : 0;
                     return (
                       <div key={pkg.id || idx} className="mb-6">
                         <h4 className="font-bold text-indigo-800 mb-1">{pkg.name}</h4>
@@ -1235,7 +1257,7 @@ export default function App() {
                       <div><label className="block font-medium mb-1">文檔號</label><input type="text" className="w-full border rounded-lg p-2.5 bg-gray-50" value={editingProject.refNo} onChange={(e) => setEditingProject({ ...editingProject, refNo: e.target.value })} /></div>
                       <div><label className="block font-medium mb-1">申請日期</label><input type="date" className="w-full border rounded-lg p-2.5 bg-gray-50" value={editingProject.applyDate} onChange={(e) => setEditingProject({ ...editingProject, applyDate: e.target.value })} /></div>
                     </div>
-                    {/* 🌟 新增：專案類型選擇 */}
+                    {/* 🌟 專案類型選擇 */}
                     <div className="pt-2">
                       <label className="block font-medium mb-2">專案類型</label>
                       <div className="flex gap-6">
@@ -1274,7 +1296,7 @@ export default function App() {
 
                     {/* 🌟 全新的多重包裹拆帳 UI */}
                     {(editingProject.breakdown || []).map((pkg: any, pIdx: number) => {
-                      const otaVal = pkg.ota ? ((parseFloat(String(pkg.price).replace(/,/g, "")) || 0) * (parseFloat(pkg.ota) / 100)) : 0;
+                      const otaVal = pkg.ota ? Math.round((parseFloat(String(pkg.price).replace(/,/g, "")) || 0) * (parseFloat(pkg.ota) / 100)) : 0;
                       return (
                         <div key={pkg.id || pIdx} className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 shadow-sm">
                           <div className="flex justify-between items-center mb-4">
